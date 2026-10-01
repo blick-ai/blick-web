@@ -7,7 +7,7 @@ import FilterPanel from "../components/filterPanel"
 import Pagination from "../components/pagination"
 import SessaoExpiradaModal from "../components/sessaoExpiradaModal"
 import UploadModal from "../components/uploadModal"
-import { listarCapturas, obterCaptura, obterCapturasDoCache, obterResumoGeral, SessaoExpiradaError } from "../services/api"
+import { listarCapturas, obterCaptura, obterCapturasDoCache, obterResumoGeral, obterPontosMapaCalor, SessaoExpiradaError } from "../services/api"
 
 const TAMANHO_PAGINA = 8
 
@@ -29,6 +29,8 @@ export default function Dashboard() {
     const [sessaoExpirada, setSessaoExpirada] = useState(false)
     const [resumoGeral, setResumoGeral] = useState(null)
     const [carregandoResumo, setCarregandoResumo] = useState(true)
+    const [pontosCalor, setPontosCalor] = useState([])
+    const [carregandoPontosCalor, setCarregandoPontosCalor] = useState(true)
     const [refreshTick, setRefreshTick] = useState(0)
     const [mostrarUploadModal, setMostrarUploadModal] = useState(false)
 
@@ -105,6 +107,31 @@ export default function Dashboard() {
     }, [refreshTick])
 
     useEffect(() => {
+        let cancelado = false
+
+        async function carregarPontosCalor() {
+            setCarregandoPontosCalor(true)
+            try {
+                const pontos = await obterPontosMapaCalor()
+                if (cancelado) return
+                setPontosCalor(pontos)
+            } catch (erro) {
+                if (cancelado) return
+                if (erro instanceof SessaoExpiradaError) {
+                    setSessaoExpirada(true)
+                    return
+                }
+                setPontosCalor([])
+            } finally {
+                if (!cancelado) setCarregandoPontosCalor(false)
+            }
+        }
+
+        carregarPontosCalor()
+        return () => { cancelado = true }
+    }, [refreshTick])
+
+    useEffect(() => {
         if (!selecionada) {
             setDetalhe(null)
             setErroDetalhe("")
@@ -153,7 +180,12 @@ export default function Dashboard() {
     return (
         <div className="bg-[#16191C] flex flex-row min-h-screen items-stretch">
             {sessaoExpirada && <SessaoExpiradaModal />}
-            <Sidebar resumo={resumoGeral} carregandoResumo={carregandoResumo} />
+            <Sidebar
+                resumo={resumoGeral}
+                carregandoResumo={carregandoResumo}
+                pontosCalor={pontosCalor}
+                carregandoPontosCalor={carregandoPontosCalor}
+            />
             <div className="flex flex-col gap-4 p-4 md:p-6 flex-1 min-w-0 pt-20 md:pt-6">
                 <PhotoHeader
                     total={total}
