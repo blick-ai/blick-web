@@ -270,30 +270,31 @@ export async function excluirCaptura(capturaId, timestamp, plantacaoId) {
     return resultado
 }
 
+// o endpoint /capturas/mapa devolve so o que o mapa precisa (sem imagemUrl).
+// timestamp vem junto porque o detalhe (obterCaptura) exige ele na URL.
+function normalizarPontoMapa(item) {
+    return {
+        capturaId: campo(item, "capturaId", "captura_id"),
+        timestamp: item.timestamp,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        statusGeral: campo(item, "statusGeral", "status_geral"),
+    }
+}
+
 export async function obterPontosMapaCalor(plantacaoId) {
-    async function buscarTodasAsCapturas(statusGeral) {
-        const primeira = await listarCapturas({ statusGeral, tamanhoPagina: 100, pagina: 1, plantacaoId })
-        const todas = [...primeira.capturas]
-        for (let pagina = 2; pagina <= primeira.totalPaginas; pagina++) {
-            const resultado = await listarCapturas({ statusGeral, tamanhoPagina: 100, pagina, plantacaoId })
-            todas.push(...resultado.capturas)
-        }
-        return todas
+    async function buscarPontos(statusGeral) {
+        const params = new URLSearchParams({ statusGeral })
+        if (plantacaoId) params.set("plantacaoId", plantacaoId)
+        const resposta = await apiFetch(`/capturas/mapa?${params.toString()}`)
+        return (resposta.pontos || []).map(normalizarPontoMapa)
     }
 
-    const resultadosPorStatus = await Promise.all(
-        GRUPOS_STATUS_GERAL.alerta.valores.map(buscarTodasAsCapturas)
+    const pontosPorStatus = await Promise.all(
+        GRUPOS_STATUS_GERAL.alerta.valores.map(buscarPontos)
     )
 
-    return resultadosPorStatus.flat()
-        .filter((c) => c.latitude != null && c.longitude != null)
-        .map((c) => ({
-            capturaId: c.capturaId,
-            latitude: c.latitude,
-            longitude: c.longitude,
-            statusGeral: c.statusGeral,
-            confiancaStatusGeral: c.confiancaStatusGeral,
-        }))
+    return pontosPorStatus.flat()
 }
 
 /**
