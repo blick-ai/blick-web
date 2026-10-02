@@ -4,8 +4,7 @@ import { STATUS_CONFIG } from "../utils/status"
 const OPCOES_STATUS_GERAL = [
     { value: "", label: "Todas" },
     { value: "saudavel", label: STATUS_CONFIG.saudavel.label },
-    { value: "praga", label: STATUS_CONFIG.praga.label },
-    { value: "doenca", label: STATUS_CONFIG.doenca.label },
+    { value: "nao_saudavel", label: STATUS_CONFIG.nao_saudavel.label },
 ]
 
 const OPCOES_ORIGEM = [

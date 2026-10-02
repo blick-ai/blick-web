@@ -17,8 +17,7 @@ const LABEL_STATUS_PIPELINE = {
 
 const LABEL_CLASSE = {
     saudavel: "Saudável",
-    praga: "Com praga",
-    doenca: "Com doença",
+    nao_saudavel: "Não saudável",
     nao_milho: "Não é milho",
 }
 

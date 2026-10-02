@@ -139,8 +139,8 @@ function normalizarDetalhe(item) {
 // quando "Todas" esta selecionado (sem statusGeral escolhido), a lista
 // so mostra plantas de milho classificadas com sucesso — nao pendente,
 // erro ou nao_milho. O backend nao tem como pedir "qualquer uma dessas
-// 3 classes" numa chamada so, entao busca as 3 separadas e junta aqui.
-const STATUS_SAUDE_MILHO = ["saudavel", "praga", "doenca"]
+// 2 classes" numa chamada so, entao busca as 2 separadas e junta aqui.
+const STATUS_SAUDE_MILHO = ["saudavel", "nao_saudavel"]
 
 export async function listarCapturas({
     pagina = 1,
@@ -244,20 +244,18 @@ export async function obterCaptura(capturaId, timestamp, plantacaoId) {
 }
 
 export async function obterResumoGeral(plantacaoId) {
-    const [saudavel, praga, doenca, naoMilho, erro] = await Promise.all([
+    const [saudavel, naoSaudavel, naoMilho, erro] = await Promise.all([
         listarCapturas({ statusGeral: "saudavel", tamanhoPagina: 1, plantacaoId }),
-        listarCapturas({ statusGeral: "praga", tamanhoPagina: 1, plantacaoId }),
-        listarCapturas({ statusGeral: "doenca", tamanhoPagina: 1, plantacaoId }),
+        listarCapturas({ statusGeral: "nao_saudavel", tamanhoPagina: 1, plantacaoId }),
         listarCapturas({ statusGeral: "nao_milho", tamanhoPagina: 1, plantacaoId }),
         listarCapturas({ status: "ERRO", tamanhoPagina: 1, plantacaoId }),
     ])
 
-    const totalPlantasClassificadas = saudavel.total + praga.total + doenca.total
+    const totalPlantasClassificadas = saudavel.total + naoSaudavel.total
 
     return {
         saudavel: saudavel.total,
-        praga: praga.total,
-        doenca: doenca.total,
+        naoSaudavel: naoSaudavel.total,
         naoMilho: naoMilho.total,
         impossivel: erro.total,
         total: totalPlantasClassificadas,

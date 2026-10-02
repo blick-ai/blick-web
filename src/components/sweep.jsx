@@ -11,7 +11,7 @@ export default function Sweep({ resumo, carregando }) {
         )
     }
 
-    const { total, saudavel, praga, doenca } = resumo
+    const { total, saudavel, naoSaudavel } = resumo
 
     return (
         <div className="bg-[#16191C] w-full border border-[#8A898B]/25 flex flex-col rounded-lg p-3 gap-2">
@@ -22,8 +22,7 @@ export default function Sweep({ resumo, carregando }) {
             </div>
 
             <QuantityBar status="Saudável" quantity={saudavel} total={total} color={STATUS_CONFIG.saudavel.color} />
-            <QuantityBar status="Praga" quantity={praga} total={total} color={STATUS_CONFIG.praga.color} />
-            <QuantityBar status="Doença" quantity={doenca} total={total} color={STATUS_CONFIG.doenca.color} />
+            <QuantityBar status="Não saudável" quantity={naoSaudavel} total={total} color={STATUS_CONFIG.nao_saudavel.color} />
         </div>
     )
 }
