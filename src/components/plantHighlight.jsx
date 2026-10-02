@@ -7,6 +7,7 @@ import cameraGray from "../assets/images/camera-gray.png"
 import locationPin from "../assets/images/location-pin.png"
 import { statusInfo, formatarHora, formatarData } from "../utils/status"
 import { excluirCaptura, SessaoExpiradaError } from "../services/api"
+import { useToast } from "../contexts/toastContext"
 
 const LABEL_STATUS_PIPELINE = {
     PENDENTE: "Pendente de classificação",
@@ -16,15 +17,14 @@ const LABEL_STATUS_PIPELINE = {
 
 const LABEL_CLASSE = {
     saudavel: "Saudável",
-    praga: "Com praga",
-    doenca: "Com doença",
+    nao_saudavel: "Não saudável",
     nao_milho: "Não é milho",
 }
 
-export default function PlantHighlight({ captura, carregando, erro, onExcluida, onSessaoExpirada }) {
+export default function PlantHighlight({ captura, carregando, erro, onExcluida, onSessaoExpirada, onFechar }) {
+    const { mostrarToast } = useToast()
     const [excluindo, setExcluindo] = useState(false)
     const [mostrarConfirmacao, setMostrarConfirmacao] = useState(false)
-    const [erroExclusao, setErroExclusao] = useState("")
     if (carregando) {
         return (
             <div className="bg-[#1B2125] border border-[#8A898B]/25 rounded-2xl p-8 flex items-center justify-center flex-1">
@@ -54,10 +54,9 @@ export default function PlantHighlight({ captura, carregando, erro, onExcluida, 
         latitude,
         longitude,
         imagemUrl,
-        modeloVersaoBorda,
-        confiancaBorda,
         erroDetalhes,
         alertaEmitido,
+        origem,
     } = captura
 
     const { label, color, bg } = statusInfo(statusGeral)
@@ -65,17 +64,18 @@ export default function PlantHighlight({ captura, carregando, erro, onExcluida, 
 
     async function handleConfirmarExclusao() {
         setExcluindo(true)
-        setErroExclusao("")
         try {
             await excluirCaptura(capturaId, timestamp)
             setMostrarConfirmacao(false)
+            mostrarToast("sucesso", "Captura excluída com sucesso")
             onExcluida?.(capturaId)
         } catch (erro) {
             if (erro instanceof SessaoExpiradaError) {
                 setMostrarConfirmacao(false)
                 onSessaoExpirada?.()
             } else {
-                setErroExclusao(erro.message || "Não foi possível excluir esta captura.")
+                setMostrarConfirmacao(false)
+                mostrarToast("erro", erro.message || "Não foi possível excluir esta captura.")
             }
         } finally {
             setExcluindo(false)
@@ -98,24 +98,31 @@ export default function PlantHighlight({ captura, carregando, erro, onExcluida, 
                                     <p className="font-bold text-[10px] text-[#C75050]">⚠ ALERTA EMITIDO</p>
                                 </div>
                             )}
-                            <p className="text-[#8A898B] text-sm">capturada às {formatarHora(timestamp)} de {formatarData(timestamp)}</p>
+                            <div
+                                className={`border rounded-full py-0.5 px-3 text-center ${origem === "manual"
+                                        ? "bg-[#4A9B9A]/20 border-[#4A9B9A]"
+                                        : "bg-[#8A898B]/20 border-[#8A898B]/40"
+                                    }`}
+                            >
+                                <p className={`font-bold text-[10px] ${origem === "manual" ? "text-[#4A9B9A]" : "text-[#8A898B]"}`}>
+                                    {origem === "manual" ? "📷 CAPTURA MANUAL" : "🚜 CAPTURA DO ROVER"}
+                                </p>
+                            </div>
                         </div>
                         <button
                             type="button"
-                            onClick={() => setMostrarConfirmacao(true)}
-                            disabled={excluindo}
-                            title="Excluir esta captura"
-                            className="text-[#8A898B] hover:text-[#C75050] disabled:opacity-40 transition-colors shrink-0 p-1"
+                            onClick={onFechar}
+                            title="Fechar"
+                            className="text-[#8A898B] hover:text-white transition-colors shrink-0 p-1"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M3 6H5H21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M19 6V20C19 21.1 18.1 22 17 22H7C5.9 22 5 21.1 5 20V6M8 6V4C8 2.9 8.9 2 10 2H14C15.1 2 16 2.9 16 4V6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M6 6L18 18M6 18L18 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                         </button>
                     </div>
                     <div className="flex flex-row gap-2 items-center">
                         <img src={cameraGray} className="w-4 h-4" />
-                        <p className="text-white font-bold uppercase">Captura {capturaId}</p>
+                        <p className="text-white font-bold uppercase">Captura {formatarData(timestamp)} - {formatarHora(timestamp)}</p>
                     </div>
                     {latitude != null && longitude != null && (
                         <div className="flex flex-row gap-2 text-[#8A898B] text-sm items-center flex-wrap">
@@ -126,13 +133,19 @@ export default function PlantHighlight({ captura, carregando, erro, onExcluida, 
                 </div>
             </div>
 
-            <div className="bg-[#1B2125] border border-t-0 border-[#8A898B]/25 p-4">
-                <div className="flex flex-col sm:flex-row gap-4">
+            <div className="bg-[#1B2125] border border-t-0 border-[#8A898B]/25 p-4 flex flex-col items-center justify-center">
+                <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
                     <img
                         src={imagemUrl || plantPlaceholder}
                         className="w-full sm:w-40 md:w-100 h-auto rounded-2xl object-cover"
                     />
-                    <div className="flex flex-col gap-3 w-full">
+                </div>
+            </div>
+
+            {classificada && probabilidades && (
+                <div className="bg-[#1B2125] border border-t-0 border-[#8A898B]/25 p-4">
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-3 w-full">
                         {classificada ? (
                             <>
                                 <p className="text-[#8A898B] font-bold">ESTADO DA PLANTA</p>
@@ -181,46 +194,24 @@ export default function PlantHighlight({ captura, carregando, erro, onExcluida, 
                             </>
                         )}
                     </div>
-                </div>
-            </div>
-
-            {classificada && probabilidades && (
-                <div className="bg-[#1B2125] border border-t-0 border-[#8A898B]/25 p-4">
-                    <div className="flex flex-col gap-2">
-                        <p className="text-[#8A898B] font-bold">PROBABILIDADE POR CLASSE</p>
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            {Object.entries(probabilidades).map(([classe, valor]) => {
-                                const info = statusInfo(classe)
-                                return (
-                                    <VitalCard
-                                        key={classe}
-                                        label={LABEL_CLASSE[classe] || classe}
-                                        value={Math.round(valor * 100)}
-                                        color={info.color}
-                                        bgColor={info.bg}
-                                        icon={
-                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                                                <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                                                <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                                            </svg>
-                                        }
-                                    />
-                                )
-                            })}
-                        </div>
                     </div>
                 </div>
             )}
 
-            <div className="bg-[#1A1412] border border-t-0 border-[#8A898B]/25 rounded-b-2xl p-4">
-                <div className="flex flex-col gap-1">
-                    <p className="text-[#8A898B] font-bold text-xs">DETALHES TÉCNICOS</p>
-                    <p className="text-[#8A898B] text-xs">
-                        Modelo de borda (Klar): {modeloVersaoBorda || "—"}
-                        {confiancaBorda != null && ` · confiança ${Math.round(confiancaBorda * 100)}%`}
-                    </p>
-                </div>
+            <div className="bg-[#1B2125] border border-t-0 border-[#8A898B]/25 rounded-b-2xl p-4 flex justify-end">
+                <button
+                    type="button"
+                    onClick={() => setMostrarConfirmacao(true)}
+                    disabled={excluindo}
+                    title="Excluir esta captura"
+                    className="flex flex-row items-center gap-2 text-[#8A898B] hover:text-[#C75050] disabled:opacity-40 transition-colors text-xs font-bold"
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 6H5H21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M19 6V20C19 21.1 18.1 22 17 22H7C5.9 22 5 21.1 5 20V6M8 6V4C8 2.9 8.9 2 10 2H14C15.1 2 16 2.9 16 4V6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Excluir captura
+                </button>
             </div>
 
             {mostrarConfirmacao && (
@@ -232,17 +223,6 @@ export default function PlantHighlight({ captura, carregando, erro, onExcluida, 
                     carregando={excluindo}
                     onConfirmar={handleConfirmarExclusao}
                     onCancelar={() => setMostrarConfirmacao(false)}
-                />
-            )}
-
-            {erroExclusao && (
-                <ConfirmModal
-                    titulo="Não foi possível excluir"
-                    mensagem={erroExclusao}
-                    textoConfirmar="Entendi"
-                    ocultarCancelar
-                    onConfirmar={() => setErroExclusao("")}
-                    onCancelar={() => setErroExclusao("")}
                 />
             )}
         </div>

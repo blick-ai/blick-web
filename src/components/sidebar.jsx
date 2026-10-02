@@ -3,11 +3,11 @@ import { useNavigate } from "react-router";
 import CarInfo from "./carInfo";
 import CarRoute from "./carRoute";
 import Sweep from "./sweep";
-import Health from "./health";
+import Heatmap from "./heatmap";
 import logo from "../assets/images/logo-transparent.png";
 import exit from "../assets/images/exit.png";
 
-export default function Sidebar({ resumo, carregandoResumo }) {
+export default function Sidebar({ resumo, carregandoResumo, pontosCalor, carregandoPontosCalor }) {
     const navigate = useNavigate();
     const [open, setOpen] = useState(false);
 
@@ -62,11 +62,9 @@ export default function Sidebar({ resumo, carregandoResumo }) {
                 <div className="bg-[#1B2125] border border-[#8A898B]/25 text-[#8A898B] flex flex-col flex-1 min-h-0 w-full py-3 px-3 gap-2 overflow-y-auto">
                     <CarInfo />
                     <br />
-                    <CarRoute />
-                    <br />
                     <Sweep resumo={resumo} carregando={carregandoResumo} />
                     <br />
-                    <Health resumo={resumo} carregando={carregandoResumo} />
+                    <Heatmap pontos={pontosCalor} carregando={carregandoPontosCalor} />
                 </div>
             </div>
         </>

@@ -3,6 +3,16 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { MemoryRouter } from "react-router"
 import Dashboard from "../pages/dashboard"
 
+// 1. Criamos a simulação do localStorage
+const localStorageMock = {
+    getItem: vi.fn(),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+    clear: vi.fn(),
+}
+// 2. Injetamos globalmente no ambiente de teste
+vi.stubGlobal('localStorage', localStorageMock)
+
 beforeEach(() => {
     localStorage.setItem("access_token", "token-expirado")
 })

@@ -6,52 +6,46 @@ import PlantHighlight from "../components/plantHighlight"
 import FilterPanel from "../components/filterPanel"
 import Pagination from "../components/pagination"
 import SessaoExpiradaModal from "../components/sessaoExpiradaModal"
-import { listarCapturas, obterCaptura, obterCapturasDoCache, obterResumoGeral, SessaoExpiradaError } from "../services/api"
+import UploadModal from "../components/uploadModal"
+import { listarCapturas, obterCaptura, obterCapturasDoCache, obterResumoGeral, obterPontosMapaCalor, SessaoExpiradaError } from "../services/api"
 
 const TAMANHO_PAGINA = 8
 
-const FILTROS_VAZIOS = { status: "", statusGeral: "", dataInicio: "", dataFim: "" }
+const FILTROS_VAZIOS = { statusGeral: "", origem: "", dataInicio: "", dataFim: "" }
 
 export default function Dashboard() {
     const [filtros, setFiltros] = useState(FILTROS_VAZIOS)
     const [pagina, setPagina] = useState(1)
     const [busca, setBusca] = useState("")
-
     const [capturas, setCapturas] = useState([])
     const [total, setTotal] = useState(0)
     const [totalPaginas, setTotalPaginas] = useState(0)
     const [carregandoLista, setCarregandoLista] = useState(true)
     const [erroLista, setErroLista] = useState("")
-
     const [selecionada, setSelecionada] = useState(null)
     const [detalhe, setDetalhe] = useState(null)
     const [carregandoDetalhe, setCarregandoDetalhe] = useState(false)
     const [erroDetalhe, setErroDetalhe] = useState("")
-
     const [sessaoExpirada, setSessaoExpirada] = useState(false)
-
     const [resumoGeral, setResumoGeral] = useState(null)
     const [carregandoResumo, setCarregandoResumo] = useState(true)
-
+    const [pontosCalor, setPontosCalor] = useState([])
+    const [carregandoPontosCalor, setCarregandoPontosCalor] = useState(true)
     const [refreshTick, setRefreshTick] = useState(0)
+    const [mostrarUploadModal, setMostrarUploadModal] = useState(false)
 
-    // busca a lista sempre que filtro ou pagina mudam — lista de mais
-    // recentes primeiro por padrao, ja que a API ordena assim sem
-    // precisar de nenhum parametro extra
     useEffect(() => {
         let cancelado = false
 
         const paramsBusca = {
             pagina,
             tamanhoPagina: TAMANHO_PAGINA,
-            status: filtros.status || undefined,
             statusGeral: filtros.statusGeral || undefined,
+            origem: filtros.origem || undefined,
             dataInicio: filtros.dataInicio || undefined,
             dataFim: filtros.dataFim || undefined,
         }
 
-        // mostra o cache na hora, se tiver — reload do navegador ou troca
-        // de filtro repetida parecem instantaneos, sem esperar a rede
         const doCache = obterCapturasDoCache(paramsBusca)
         if (doCache) {
             setCapturas(doCache.capturas)
@@ -77,9 +71,6 @@ export default function Dashboard() {
                     setSessaoExpirada(true)
                     return
                 }
-                // se ja tinha dado do cache em tela, um erro na
-                // atualizacao por tras nao precisa esconder o que ja
-                // esta mostrando — so avisa se nao tinha nada exibido
                 if (!doCache) {
                     setErroLista(erro.message || "Não foi possível carregar as capturas.")
                 }
@@ -92,8 +83,6 @@ export default function Dashboard() {
         return () => { cancelado = true }
     }, [filtros, pagina, refreshTick])
 
-    // resumo geral (sidebar) — busca uma vez ao montar, independente dos
-    // filtros/pagina da lista principal
     useEffect(() => {
         let cancelado = false
 
@@ -108,8 +97,6 @@ export default function Dashboard() {
                 if (erro instanceof SessaoExpiradaError) {
                     setSessaoExpirada(true)
                 }
-                // erro no resumo lateral nao e critico o bastante pra
-                // travar o resto do dashboard — so fica sem esse card
             } finally {
                 if (!cancelado) setCarregandoResumo(false)
             }
@@ -117,10 +104,33 @@ export default function Dashboard() {
 
         carregarResumo()
         return () => { cancelado = true }
-    }, [])
+    }, [refreshTick])
 
-    // busca o detalhe SO quando o usuario clica numa captura — nunca em
-    // lote, nunca antecipado
+    useEffect(() => {
+        let cancelado = false
+
+        async function carregarPontosCalor() {
+            setCarregandoPontosCalor(true)
+            try {
+                const pontos = await obterPontosMapaCalor()
+                if (cancelado) return
+                setPontosCalor(pontos)
+            } catch (erro) {
+                if (cancelado) return
+                if (erro instanceof SessaoExpiradaError) {
+                    setSessaoExpirada(true)
+                    return
+                }
+                setPontosCalor([])
+            } finally {
+                if (!cancelado) setCarregandoPontosCalor(false)
+            }
+        }
+
+        carregarPontosCalor()
+        return () => { cancelado = true }
+    }, [refreshTick])
+
     useEffect(() => {
         if (!selecionada) {
             setDetalhe(null)
@@ -155,7 +165,7 @@ export default function Dashboard() {
 
     function handleFiltrosChange(novosFiltros) {
         setFiltros(novosFiltros)
-        setPagina(1) // volta pra primeira pagina sempre que o filtro muda
+        setPagina(1)
     }
 
     function handleLimparFiltros() {
@@ -170,29 +180,43 @@ export default function Dashboard() {
     return (
         <div className="bg-[#16191C] flex flex-row min-h-screen items-stretch">
             {sessaoExpirada && <SessaoExpiradaModal />}
-            <Sidebar resumo={resumoGeral} carregandoResumo={carregandoResumo} />
+            <Sidebar
+                resumo={resumoGeral}
+                carregandoResumo={carregandoResumo}
+                pontosCalor={pontosCalor}
+                carregandoPontosCalor={carregandoPontosCalor}
+            />
             <div className="flex flex-col gap-4 p-4 md:p-6 flex-1 min-w-0 pt-20 md:pt-6">
                 <PhotoHeader
                     total={total}
                     busca={busca}
                     onBuscaChange={setBusca}
                     filtroSlot={
-                        <FilterPanel filtros={filtros} onChange={handleFiltrosChange} onLimpar={handleLimparFiltros} />
+                        <FilterPanel
+                            filtros={filtros}
+                            onChange={handleFiltrosChange}
+                            onLimpar={handleLimparFiltros}
+                            onCarregarCaptura={() => setMostrarUploadModal(true)}
+                        />
                     }
                 />
-                <div className="flex flex-col min-[1600px]:flex-row gap-4 flex-1 min-h-0">
-                    <div className={`flex flex-col gap-3 min-w-0 ${selecionada ? "w-full min-[1600px]:w-1/2" : "w-full"}`}>
-                        <PhotoList
-                            capturas={capturasFiltradas}
-                            selectedId={selecionada?.capturaId}
-                            onSelect={setSelecionada}
-                            carregando={carregandoLista}
-                            erro={erroLista}
-                        />
-                        <Pagination paginaAtual={pagina} totalPaginas={totalPaginas} onChange={setPagina} />
-                    </div>
-                    {selecionada && (
-                        <div className="flex flex-col min-[1600px]:w-1/2 min-[1600px]:shrink-0 overflow-y-auto">
+                <div className="flex flex-col gap-3 min-w-0 flex-1 min-h-0">
+                    <PhotoList
+                        capturas={capturasFiltradas}
+                        selectedId={selecionada?.capturaId}
+                        onSelect={setSelecionada}
+                        carregando={carregandoLista}
+                        erro={erroLista}
+                    />
+                    <Pagination paginaAtual={pagina} totalPaginas={totalPaginas} onChange={setPagina} />
+                </div>
+            </div>
+
+            {selecionada && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                    <div className="fixed inset-0 bg-black/60" onClick={() => setSelecionada(null)} />
+                    <div className="relative bg-[#16191C] flex flex-col w-full h-full sm:h-auto sm:max-h-[90vh] sm:w-[90vw] sm:max-w-2xl sm:rounded-2xl border border-[#8A898B]/25 overflow-hidden">
+                        <div className="overflow-y-auto flex-1 custom-scrollbar">
                             <PlantHighlight
                                 captura={detalhe}
                                 carregando={carregandoDetalhe}
@@ -202,11 +226,20 @@ export default function Dashboard() {
                                     setRefreshTick((t) => t + 1)
                                 }}
                                 onSessaoExpirada={() => setSessaoExpirada(true)}
+                                onFechar={() => setSelecionada(null)}
                             />
                         </div>
-                    )}
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {mostrarUploadModal && (
+                <UploadModal
+                    onFechar={() => setMostrarUploadModal(false)}
+                    onSucesso={() => setRefreshTick((t) => t + 1)}
+                    onSessaoExpirada={() => setSessaoExpirada(true)}
+                />
+            )}
         </div>
     )
 }
