@@ -19,12 +19,11 @@ export default function Health({ resumo, carregando }) {
         )
     }
 
-    const { total, saudavel, praga, doenca } = resumo
+    const { total, saudavel, naoSaudavel } = resumo
 
     const itens = [
         { chave: "saudavel", label: STATUS_CONFIG.saudavel.label, color: STATUS_CONFIG.saudavel.color, quantidade: saudavel },
-        { chave: "praga", label: STATUS_CONFIG.praga.label, color: STATUS_CONFIG.praga.color, quantidade: praga },
-        { chave: "doenca", label: STATUS_CONFIG.doenca.label, color: STATUS_CONFIG.doenca.color, quantidade: doenca },
+        { chave: "nao_saudavel", label: STATUS_CONFIG.nao_saudavel.label, color: STATUS_CONFIG.nao_saudavel.color, quantidade: naoSaudavel },
     ]
 
     return (
@@ -33,7 +32,7 @@ export default function Health({ resumo, carregando }) {
                 <img src={healthIcon} className="w-3.5 h-auto" />
                 <p className="text-[#8A898B] font-bold text-[10px]">DISTRIBUIÇÃO GERAL</p>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
                 {itens.map((item) => (
                     <div key={item.chave} className="flex flex-col">
                         <p className="font-extrabold text-lg" style={{ color: item.color }}>

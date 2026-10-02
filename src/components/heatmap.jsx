@@ -3,7 +3,7 @@ import { STATUS_CONFIG } from "../utils/status"
 
 const NUM_COLUNAS = 6
 const COR_MIN = "#1B2125"
-const COR_MAX = STATUS_CONFIG.doenca.color
+const COR_MAX = STATUS_CONFIG.nao_saudavel.color
 
 function interpolarCor(corA, corB, t) {
     const hexParaRgb = (hex) => {

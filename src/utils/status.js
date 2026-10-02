@@ -1,17 +1,17 @@
 export const STATUS_CONFIG = {
     saudavel: { label: "SAUDÁVEL", color: "#4CAF50", bg: "#1A2E1A" },
-    praga: { label: "COM PRAGA", color: "#D4A34A", bg: "#2A2200" },
-    doenca: { label: "DOENÇA", color: "#C75050", bg: "#2E1A1A" },
+    nao_saudavel: { label: "NÃO SAUDÁVEL", color: "#C75050", bg: "#2E1A1A" },
     nao_milho: { label: "NÃO É MILHO", color: "#8A898B", bg: "#232323" },
 }
 
 // Usado especificamente pra alimentar o mapa de calor (ver
-// obterPontosMapaCalor em services/api.js) — o filtro do dashboard usa
-// os 4 status individuais direto (saudavel/praga/doenca/nao_milho), sem
-// agrupamento. Só o mapa de calor junta praga+doenca num unico conjunto
-// de pontos, pra nao precisar de 2 mapas separados.
+// obterPontosMapaCalor em services/api.js). Antes da migracao pra 2
+// classes, juntava praga+doenca num unico grupo "alerta" pra nao precisar
+// de 2 mapas separados; agora so existe "nao_saudavel" mesmo, mas o
+// formato (objeto com .valores, uma lista) foi mantido pra nao precisar
+// mexer em api.js tambem.
 export const GRUPOS_STATUS_GERAL = {
-    alerta: { label: "PRAGA / DOENÇA", color: "#D4A34A", valores: ["praga", "doenca"] },
+    alerta: { label: "NÃO SAUDÁVEL", color: "#C75050", valores: ["nao_saudavel"] },
 }
 
 const STATUS_PADRAO = { label: "PENDENTE", color: "#8A898B", bg: "#232323" }
