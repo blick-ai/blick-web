@@ -9,8 +9,8 @@ const OPCOES_STATUS_GERAL = [
 
 const OPCOES_ORIGEM = [
     { value: "", label: "Todas" },
-    { value: "rover", label: "🚜 Rover" },
-    { value: "manual", label: "📷 Manual" },
+    { value: "rover", label: "ROVER" },
+    { value: "manual", label: "MANUAL" },
 ]
 
 function GrupoBotoes({ titulo, opcoes, valorAtual, onChange }) {

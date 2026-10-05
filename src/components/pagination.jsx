@@ -1,79 +1,98 @@
 const TAMANHO_JANELA = 5
+const PASSO_PAGINACAO = 5
 
-export default function Pagination({ paginaAtual, totalPaginas, onChange }) {
-    if (!totalPaginas || totalPaginas <= 1) return null
+export default function Pagination({
+    paginaAtual,
+    totalPaginas,
+    onChange,
+    carregando = false,
+}) {
+    const total = Math.max(0, Math.floor(Number(totalPaginas) || 0))
+    const pagina = Math.min(
+        Math.max(Math.floor(Number(paginaAtual) || 1), 1),
+        Math.max(total, 1),
+    )
 
-    // janela desliza junto com a pagina atual, tentando deixar ela no meio
-    // — assim, ao clicar em "5", os vizinhos (6, 7...) ja aparecem na
-    // mesma janela, sem precisar de outro clique pra "revelar" o proximo
-    // bloco
-    let inicio = Math.max(1, paginaAtual - Math.floor(TAMANHO_JANELA / 2))
-    let fim = inicio + TAMANHO_JANELA - 1
-    if (fim > totalPaginas) {
-        fim = totalPaginas
-        inicio = Math.max(1, fim - TAMANHO_JANELA + 1)
+    if (total <= 1) return null
+
+    let inicio = Math.max(1, pagina - Math.floor(TAMANHO_JANELA / 2))
+    let fim = Math.min(total, inicio + TAMANHO_JANELA - 1)
+    inicio = Math.max(1, fim - TAMANHO_JANELA + 1)
+
+    const paginas = Array.from(
+        { length: fim - inicio + 1 },
+        (_, indice) => inicio + indice,
+    )
+
+    const navegar = (destino) => {
+        const paginaDestino = Math.min(Math.max(destino, 1), total)
+        if (paginaDestino !== pagina) onChange(paginaDestino)
     }
 
-    const paginas = []
-    for (let p = inicio; p <= fim; p++) paginas.push(p)
-
     const botaoBase =
-        "min-w-8 h-8 rounded-lg text-xs font-bold flex items-center justify-center transition-colors"
-    const botaoInativo = `${botaoBase} text-[#8A898B] hover:text-white hover:bg-[#1B2125]`
+        "min-w-8 h-8 px-2 rounded-lg text-xs font-bold flex items-center justify-center transition-colors"
+    const botaoInativo =
+        `${botaoBase} text-[#8A898B] hover:text-white hover:bg-[#1B2125] disabled:opacity-40 disabled:cursor-not-allowed`
     const botaoAtivo = `${botaoBase} bg-[#4A9B9A] text-white`
 
     return (
-        <div className="flex flex-row items-center justify-center gap-1 flex-wrap">
+        <nav
+            className="flex flex-wrap items-center justify-center gap-1"
+            aria-label="Paginação"
+        >
             <button
                 type="button"
-                disabled={paginaAtual <= 1}
-                onClick={() => onChange(paginaAtual - 1)}
-                className={`${botaoBase} text-[#8A898B] hover:text-white disabled:opacity-30 disabled:hover:text-[#8A898B]`}
+                className={botaoInativo}
+                onClick={() => navegar(pagina - PASSO_PAGINACAO)}
+                disabled={carregando || pagina <= 1}
+                aria-label={`Voltar ${PASSO_PAGINACAO} páginas`}
             >
-                ‹
+                −5
             </button>
 
             {inicio > 1 && (
                 <>
-                    <button type="button" onClick={() => onChange(1)} className={botaoInativo}>
-                        1
-                    </button>
-                    <span className="text-[#8A898B] px-1">…</span>
+                    {inicio > 2 && (
+                        <span className="px-1 text-[#8A898B]" aria-hidden="true">
+                            …
+                        </span>
+                    )}
                 </>
             )}
 
-            {paginas.map((p) => (
+            {paginas.map((numero) => (
                 <button
-                    key={p}
+                    key={numero}
                     type="button"
-                    onClick={() => onChange(p)}
-                    className={p === paginaAtual ? botaoAtivo : botaoInativo}
+                    className={numero === pagina ? botaoAtivo : botaoInativo}
+                    onClick={() => navegar(numero)}
+                    disabled={carregando || numero === pagina}
+                    aria-current={numero === pagina ? "page" : undefined}
+                    aria-label={`Página ${numero}`}
                 >
-                    {p}
+                    {numero}
                 </button>
             ))}
 
-            {fim < totalPaginas && (
+            {fim < total && (
                 <>
-                    <span className="text-[#8A898B] px-1">…</span>
-                    <button
-                        type="button"
-                        onClick={() => onChange(totalPaginas)}
-                        className={botaoInativo}
-                    >
-                        {totalPaginas}
-                    </button>
+                    {fim < total - 1 && (
+                        <span className="px-1 text-[#8A898B]" aria-hidden="true">
+                            …
+                        </span>
+                    )}
                 </>
             )}
 
             <button
                 type="button"
-                disabled={paginaAtual >= totalPaginas}
-                onClick={() => onChange(paginaAtual + 1)}
-                className={`${botaoBase} text-[#8A898B] hover:text-white disabled:opacity-30 disabled:hover:text-[#8A898B]`}
+                className={botaoInativo}
+                onClick={() => navegar(pagina + PASSO_PAGINACAO)}
+                disabled={carregando || pagina >= total}
+                aria-label={`Avançar ${PASSO_PAGINACAO} páginas`}
             >
-                ›
+                +5
             </button>
-        </div>
+        </nav>
     )
 }

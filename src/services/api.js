@@ -1,337 +1,661 @@
-const API_URL = import.meta.env.VITE_API_URL
+const API_URL = import.meta.env.VITE_API_URL;
+
 export class SessaoExpiradaError extends Error {
-    constructor() {
-        super("Sessão expirada")
-        this.name = "SessaoExpiradaError"
-    }
+  constructor() {
+    super("Sessão expirada");
+    this.name = "SessaoExpiradaError";
+  }
 }
 
-import { GRUPOS_STATUS_GERAL } from "../utils/status"
-const CACHE_PREFIXO = "blick_cache_capturas:"
-const CACHE_TTL_MS = 60 * 1000
+import { GRUPOS_STATUS_GERAL } from "../utils/status";
+
+const CACHE_PREFIXO = "blick_cache_capturas:";
+const CACHE_TTL_MS = 60 * 1000;
+const CACHE_MAX_ENTRADAS = 100;
+const MAX_REQUISICOES_PARALELAS = 4;
+
+const cacheMemoria = new Map();
+const requisicoesEmAndamento = new Map();
+let geracaoCache = 0;
+
+function getToken() {
+  try {
+    return localStorage.getItem("access_token");
+  } catch {
+    return null;
+  }
+}
+
+function identidadeSessao() {
+  const token = getToken() || "";
+  let hash = 2166136261;
+
+  for (let i = 0; i < token.length; i += 1) {
+    hash ^= token.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+function serializar(params) {
+  const normalizados = Object.fromEntries(
+    Object.entries(params)
+      .filter(([, valor]) => valor !== undefined && valor !== "")
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+
+  return JSON.stringify(normalizados);
+}
 
 function chaveCache(params) {
-    return CACHE_PREFIXO + JSON.stringify(params)
+  return `${CACHE_PREFIXO}${identidadeSessao()}:${serializar(params)}`;
+}
+
+function guardarEmMemoria(chave, dados, ttl) {
+  cacheMemoria.delete(chave);
+  cacheMemoria.set(chave, {
+    dados,
+    expiraEm: Date.now() + ttl,
+  });
+
+  if (cacheMemoria.size > CACHE_MAX_ENTRADAS) {
+    const chaveMaisAntiga = cacheMemoria.keys().next().value;
+    cacheMemoria.delete(chaveMaisAntiga);
+  }
 }
 
 function lerCache(params) {
-    try {
-        const bruto = localStorage.getItem(chaveCache(params))
-        if (!bruto) return null
-        const { timestamp, dados } = JSON.parse(bruto)
-        if (Date.now() - timestamp > CACHE_TTL_MS) return null
-        return dados
-    } catch {
-        return null
+  const chave = chaveCache(params);
+  const agora = Date.now();
+  const memoria = cacheMemoria.get(chave);
+
+  if (memoria && memoria.expiraEm > agora) {
+    return memoria.dados;
+  }
+
+  if (memoria) {
+    cacheMemoria.delete(chave);
+  }
+
+  try {
+    const bruto = localStorage.getItem(chave);
+    if (!bruto) return null;
+
+    const { timestamp, dados } = JSON.parse(bruto);
+
+    if (!Number.isFinite(timestamp) || agora - timestamp > CACHE_TTL_MS) {
+      localStorage.removeItem(chave);
+      return null;
     }
+
+    guardarEmMemoria(chave, dados, CACHE_TTL_MS);
+    return dados;
+  } catch {
+    return null;
+  }
 }
 
-function salvarCache(params, dados) {
-    try {
-        localStorage.setItem(chaveCache(params), JSON.stringify({ timestamp: Date.now(), dados }))
-    } catch {
-        // localStorage pode falhar (modo privado, cota cheia) — nunca
-        // deve quebrar a aplicacao por causa disso
-    }
+function salvarCache(params, dados, ttl = CACHE_TTL_MS, persistir = false) {
+  const chave = chaveCache(params);
+  guardarEmMemoria(chave, dados, ttl);
+
+  if (!persistir) return;
+
+  try {
+    localStorage.setItem(
+      chave,
+      JSON.stringify({ timestamp: Date.now(), dados }),
+    );
+  } catch {
+    // Cache persistente indisponível ou sem espaço: a aplicação segue normalmente.
+  }
+}
+
+async function comCache(
+  params,
+  carregar,
+  ttl = CACHE_TTL_MS,
+  persistir = false,
+) {
+  const chave = chaveCache(params);
+  const agora = Date.now();
+  const memoria = cacheMemoria.get(chave);
+
+  if (memoria && memoria.expiraEm > agora) {
+    return memoria.dados;
+  }
+
+  if (memoria) {
+    cacheMemoria.delete(chave);
+  }
+
+  if (persistir) {
+    const persistido = lerCache(params);
+    if (persistido !== null) return persistido;
+  }
+
+  const requisicaoExistente = requisicoesEmAndamento.get(chave);
+  if (requisicaoExistente) return requisicaoExistente;
+
+  const geracao = geracaoCache;
+  const requisicao = Promise.resolve()
+    .then(carregar)
+    .then((dados) => {
+      if (geracao === geracaoCache) {
+        salvarCache(params, dados, ttl, persistir);
+      }
+
+      return dados;
+    })
+    .finally(() => {
+      if (requisicoesEmAndamento.get(chave) === requisicao) {
+        requisicoesEmAndamento.delete(chave);
+      }
+    });
+
+  requisicoesEmAndamento.set(chave, requisicao);
+  return requisicao;
 }
 
 function limparCacheListagem() {
-    try {
-        const chaves = Object.keys(localStorage).filter((k) => k.startsWith(CACHE_PREFIXO))
-        chaves.forEach((k) => localStorage.removeItem(k))
-    } catch {
-        // idem — falha ao limpar cache nao pode quebrar a aplicacao
-    }
-}
+  geracaoCache += 1;
+  cacheMemoria.clear();
+  requisicoesEmAndamento.clear();
 
-function getToken() {
-    return localStorage.getItem("access_token")
+  try {
+    const chaves = Object.keys(localStorage).filter((chave) =>
+      chave.startsWith(CACHE_PREFIXO),
+    );
+
+    chaves.forEach((chave) => localStorage.removeItem(chave));
+  } catch {
+    // Falha ao limpar o cache não deve impedir upload ou exclusão.
+  }
 }
 
 async function apiFetch(path, options = {}) {
-    const token = getToken()
+  const token = getToken();
 
-    const response = await fetch(`${API_URL}${path}`, {
-        ...options,
-        headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...options.headers,
-        },
-    })
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
+  });
 
-    if (response.status === 401) {
-        throw new SessaoExpiradaError()
+  if (response.status === 401) {
+    throw new SessaoExpiradaError();
+  }
+
+  const texto = await response.text();
+  let corpo = null;
+
+  if (texto) {
+    try {
+      corpo = JSON.parse(texto);
+    } catch {
+      corpo = texto;
     }
+  }
 
-    if (!response.ok) {
-        const erro = await response.json().catch(() => ({}))
-        // erro de validacao do FastAPI (422) manda "detail" como uma
-        // LISTA de objetos, nao uma string — sem tratar isso, vira
-        // "[object Object]" na tela (era exatamente esse o bug)
-        const mensagem = Array.isArray(erro?.detail)
-            ? erro.detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
-            : erro?.detail || `Erro ${response.status} ao consultar a API`
-        throw new Error(mensagem)
-    }
+  if (!response.ok) {
+    const detalhe = corpo?.detail;
+    const mensagem = Array.isArray(detalhe)
+      ? detalhe.map((item) => item.msg || JSON.stringify(item)).join("; ")
+      : typeof detalhe === "string"
+        ? detalhe
+        : `Erro ${response.status} ao consultar a API`;
 
-    return response.json()
+    throw new Error(mensagem);
+  }
+
+  return corpo;
 }
 
 function campo(objeto, ...nomes) {
-    for (const nome of nomes) {
-        if (objeto[nome] !== undefined) return objeto[nome]
-    }
-    return undefined
+  for (const nome of nomes) {
+    if (objeto?.[nome] !== undefined) return objeto[nome];
+  }
+
+  return undefined;
 }
 
-function normalizarResumo(item) {
+function normalizarResumo(item = {}) {
+  return {
+    ...item,
+    capturaId: campo(item, "capturaId", "captura_id"),
+    timestamp: campo(item, "timestamp", "dataCaptura", "data_captura"),
+    status: campo(item, "status", "statusPipeline", "status_pipeline"),
+    statusGeral: campo(
+      item,
+      "statusGeral",
+      "status_geral",
+      "classificacaoGeral",
+      "classificacao_geral",
+    ),
+    confiancaStatusGeral: campo(
+      item,
+      "confiancaStatusGeral",
+      "confianca_status_geral",
+    ),
+    latitude: campo(item, "latitude", "lat"),
+    longitude: campo(item, "longitude", "lng", "lon"),
+    alertaEmitido: campo(item, "alertaEmitido", "alerta_emitido"),
+    imagemUrl: campo(item, "imagemUrl", "imagem_url"),
+    origem: campo(item, "origem") || "rover",
+  };
+}
+
+function normalizarListaResposta(resposta = {}) {
+  const capturas = Array.isArray(resposta)
+    ? resposta
+    : resposta.capturas || resposta.items || resposta.data || [];
+
+  return {
+    ...resposta,
+    capturas: capturas.map(normalizarResumo),
+    pagina: campo(resposta, "pagina", "page"),
+    tamanhoPagina: campo(
+      resposta,
+      "tamanhoPagina",
+      "tamanho_pagina",
+      "pageSize",
+    ),
+    total: campo(resposta, "total", "totalCount") ?? capturas.length,
+    totalPaginas:
+      campo(resposta, "totalPaginas", "total_paginas", "totalPages") ?? 0,
+  };
+}
+
+function primeiroValor(...valores) {
+    return valores.find(
+        (valor) => valor !== undefined && valor !== null && valor !== "",
+    ) ?? null
+}
+
+function normalizarDetalhe(resposta = {}) {
+    const item = resposta.captura ?? resposta.data ?? resposta
+    const diagnostico = item.diagnostico ?? {}
+    const localizacao = item.localizacao ?? {}
+    const alerta = item.alerta ?? {}
+
     return {
-        capturaId: campo(item, "capturaId", "captura_id"),
-        timestamp: item.timestamp,
-        status: item.status,
-        statusGeral: campo(item, "statusGeral", "status_geral"),
-        confiancaStatusGeral: campo(item, "confiancaStatusGeral", "confianca_status_geral"),
-        latitude: item.latitude,
-        longitude: item.longitude,
-        alertaEmitido: campo(item, "alertaEmitido", "alerta_emitido"),
-        imagemUrl: campo(item, "imagemUrl", "imagem_url"),
-        origem: item.origem || "rover",
+        ...item,
+        capturaId: primeiroValor(item.capturaId, item.captura_id),
+        timestamp: primeiroValor(
+            item.timestamp,
+            item.capturadoEm,
+            item.capturado_em,
+        ),
+        status: primeiroValor(
+            item.status,
+            item.statusProcessamento,
+            item.status_processamento,
+        ),
+        statusGeral: primeiroValor(
+            item.statusGeral,
+            item.status_geral,
+            diagnostico.status,
+        ),
+        confiancaStatusGeral: primeiroValor(
+            item.confiancaStatusGeral,
+            item.confianca_status_geral,
+            diagnostico.confianca,
+        ),
+        latitude: primeiroValor(
+            item.latitude,
+            localizacao.latitude,
+        ),
+        longitude: primeiroValor(
+            item.longitude,
+            localizacao.longitude,
+        ),
+        alertaEmitido: primeiroValor(
+            item.alertaEmitido,
+            item.alerta_emitido,
+            alerta.emitido,
+            false,
+        ),
+        alertaEmitidoEm: primeiroValor(
+            item.alertaEmitidoEm,
+            item.alerta_emitido_em,
+            alerta.ultimaEmissao,
+            alerta.ultima_emissao,
+        ),
+        imagemUrl: primeiroValor(item.imagemUrl, item.imagem_url),
+        erroDetalhes: primeiroValor(
+            item.erroDetalhes,
+            item.erro_detalhes,
+        ),
+        statusHistory: item.statusHistory ?? item.status_history ?? [],
+        analisePorPlanta: Array.isArray(item.plantas)
+            ? item.plantas
+            : Array.isArray(item.analisePorPlanta)
+              ? item.analisePorPlanta
+              : Array.isArray(item.analise_por_planta)
+                ? item.analise_por_planta
+                : [],
+        origem: item.origem ?? "rover",
     }
 }
 
-function normalizarListaResposta(resposta) {
-    return {
-        capturas: (resposta.capturas || []).map(normalizarResumo),
-        pagina: resposta.pagina,
-        tamanhoPagina: campo(resposta, "tamanhoPagina", "tamanho_pagina"),
-        total: resposta.total,
-        totalPaginas: campo(resposta, "totalPaginas", "total_paginas"),
-    }
-}
-
-function normalizarDetalhe(item) {
-    return {
-        capturaId: campo(item, "capturaId", "captura_id"),
-        plantacaoId: campo(item, "plantacaoId", "plantacao_id"),
-        carrinhoId: campo(item, "carrinhoId", "carrinho_id"),
-        clienteId: campo(item, "clienteId", "cliente_id"),
-        timestamp: item.timestamp,
-        status: item.status,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        statusGeral: campo(item, "statusGeral", "status_geral"),
-        confiancaStatusGeral: campo(item, "confiancaStatusGeral", "confianca_status_geral"),
-        subtipo: item.subtipo,
-        confiancaSubtipo: campo(item, "confiancaSubtipo", "confianca_subtipo"),
-        probabilidades: item.probabilidades,
-        modeloVersaoBorda: campo(item, "modeloVersaoBorda", "modelo_versao_borda"),
-        confiancaBorda: campo(item, "confiancaBorda", "confianca_borda"),
-        imagemUrl: campo(item, "imagemUrl", "imagem_url"),
-        statusHistory: campo(item, "statusHistory", "status_history") || [],
-        erroDetalhes: campo(item, "erroDetalhes", "erro_detalhes"),
-        alertaEmitido: campo(item, "alertaEmitido", "alerta_emitido"),
-        alertaEmitidoEm: campo(item, "alertaEmitidoEm", "alerta_emitido_em"),
-        origem: item.origem || "rover",
-    }
-}
-
-// quando "Todas" esta selecionado (sem statusGeral escolhido), a lista
-// so mostra plantas de milho classificadas com sucesso — nao pendente,
-// erro ou nao_milho. O backend nao tem como pedir "qualquer uma dessas
-// 2 classes" numa chamada so, entao busca as 2 separadas e junta aqui.
-const STATUS_SAUDE_MILHO = ["saudavel", "nao_saudavel"]
+const STATUS_SAUDE_MILHO = ["saudavel", "nao_saudavel"];
 
 export async function listarCapturas({
-    pagina = 1,
-    tamanhoPagina = 8,
+  pagina = 1,
+  tamanhoPagina = 8,
+  status,
+  statusGeral,
+  origem,
+  dataInicio,
+  dataFim,
+  plantacaoId,
+} = {}) {
+  const filtros = {
+    pagina,
+    tamanhoPagina,
     status,
     statusGeral,
     origem,
     dataInicio,
     dataFim,
     plantacaoId,
-} = {}) {
-    if (!status && !statusGeral) {
-        return listarCapturasMultiStatus({
-            pagina, tamanhoPagina, origem, dataInicio, dataFim, plantacaoId, valores: STATUS_SAUDE_MILHO,
-        })
-    }
+  };
 
-    const chaveParams = { pagina, tamanhoPagina, status, statusGeral, origem, dataInicio, dataFim, plantacaoId }
+  if (!status && !statusGeral) {
+    return listarCapturasMultiStatus({
+      pagina,
+      tamanhoPagina,
+      origem,
+      dataInicio,
+      dataFim,
+      plantacaoId,
+      valores: STATUS_SAUDE_MILHO,
+    });
+  }
 
-    const params = new URLSearchParams()
-    params.set("pagina", String(pagina))
-    params.set("tamanhoPagina", String(tamanhoPagina))
-    if (status) params.set("status", status)
-    if (statusGeral) params.set("statusGeral", statusGeral)
-    if (origem) params.set("origem", origem)
-    if (dataInicio) params.set("dataInicio", dataInicio)
-    if (dataFim) params.set("dataFim", dataFim)
-    if (plantacaoId) params.set("plantacaoId", plantacaoId)
+  const params = new URLSearchParams();
+  params.set("pagina", String(pagina));
+  params.set("tamanhoPagina", String(tamanhoPagina));
 
-    const resposta = await apiFetch(`/capturas?${params.toString()}`)
-    const resultado = normalizarListaResposta(resposta)
-    salvarCache(chaveParams, resultado)
-    return resultado
+  if (status) params.set("status", status);
+  if (statusGeral) params.set("statusGeral", statusGeral);
+  if (origem) params.set("origem", origem);
+  if (dataInicio) params.set("dataInicio", dataInicio);
+  if (dataFim) params.set("dataFim", dataFim);
+  if (plantacaoId) params.set("plantacaoId", plantacaoId);
+
+  return comCache(
+    { tipo: "lista", ...filtros },
+    async () => {
+      const resposta = await apiFetch(`/capturas?${params.toString()}`);
+      return normalizarListaResposta(resposta);
+    },
+    CACHE_TTL_MS,
+    true,
+  );
 }
 
-const TAMANHO_MAXIMO_BACKEND = 100 // limite real que o backend aceita por chamada (validado em routes.py, le=100)
+const TAMANHO_MAXIMO_BACKEND = 100;
 
-async function listarCapturasMultiStatus({ pagina, tamanhoPagina, origem, dataInicio, dataFim, plantacaoId, valores }) {
-    const chaveParams = { pagina, tamanhoPagina, status: undefined, statusGeral: undefined, origem, dataInicio, dataFim, plantacaoId }
-    const itensNecessarios = pagina * tamanhoPagina
-
-    // busca CADA status em blocos de no maximo 100 itens — nunca pede
-    // mais que o backend aceita numa chamada so. Paginas rasas (ate ~12,
-    // com tamanhoPagina=8) cabem numa unica chamada; paginas mais fundas
-    // disparam varias chamadas em paralelo, cada uma dentro do limite.
-    async function buscarStatusCompleto(statusGeral) {
-        if (itensNecessarios <= TAMANHO_MAXIMO_BACKEND) {
-            const resultado = await listarCapturas({
-                statusGeral, origem, tamanhoPagina: itensNecessarios, pagina: 1, dataInicio, dataFim, plantacaoId,
-            })
-            return resultado
-        }
-
-        const numeroDeBlocos = Math.ceil(itensNecessarios / TAMANHO_MAXIMO_BACKEND)
-        const respostas = await Promise.all(
-            Array.from({ length: numeroDeBlocos }, (_, indice) =>
-                listarCapturas({
-                    statusGeral, origem, tamanhoPagina: TAMANHO_MAXIMO_BACKEND,
-                    pagina: indice + 1, dataInicio, dataFim, plantacaoId,
-                })
-            )
-        )
-        return {
-            capturas: respostas.flatMap((r) => r.capturas),
-            total: respostas[0]?.total ?? 0,
-        }
-    }
-
-    const respostas = await Promise.all(valores.map(buscarStatusCompleto))
-
-    const todasCapturas = respostas.flatMap((r) => r.capturas)
-    todasCapturas.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-
-    const total = respostas.reduce((soma, r) => soma + r.total, 0)
-    const totalPaginas = Math.max(1, Math.ceil(total / tamanhoPagina))
-    const inicio = (pagina - 1) * tamanhoPagina
-    const capturas = todasCapturas.slice(inicio, inicio + tamanhoPagina)
-
-    const resultado = { capturas, pagina, tamanhoPagina, total, totalPaginas }
-    salvarCache(chaveParams, resultado)
-    return resultado
-}
-
-export function obterCapturasDoCache({
-    pagina = 1,
-    tamanhoPagina = 8,
-    status,
-    statusGeral,
+async function listarCapturasMultiStatus({
+  pagina,
+  tamanhoPagina,
+  origem,
+  dataInicio,
+  dataFim,
+  plantacaoId,
+  valores,
+}) {
+  const chave = {
+    tipo: "lista-multi",
+    pagina,
+    tamanhoPagina,
+    origem,
     dataInicio,
     dataFim,
     plantacaoId,
+    valores,
+  };
+
+  return comCache(
+    chave,
+    async () => {
+      const itensNecessarios = pagina * tamanhoPagina;
+      const numeroDeBlocos = Math.ceil(
+        itensNecessarios / TAMANHO_MAXIMO_BACKEND,
+      );
+
+      async function buscarStatusCompleto(statusGeral) {
+        const respostas = [];
+
+        for (
+          let inicio = 0;
+          inicio < numeroDeBlocos;
+          inicio += MAX_REQUISICOES_PARALELAS
+        ) {
+          const quantidade = Math.min(
+            MAX_REQUISICOES_PARALELAS,
+            numeroDeBlocos - inicio,
+          );
+
+          const lote = await Promise.all(
+            Array.from({ length: quantidade }, (_, indice) =>
+              listarCapturas({
+                pagina: inicio + indice + 1,
+                tamanhoPagina: TAMANHO_MAXIMO_BACKEND,
+                statusGeral,
+                origem,
+                dataInicio,
+                dataFim,
+                plantacaoId,
+              }),
+            ),
+          );
+
+          respostas.push(...lote);
+        }
+
+        return {
+          capturas: respostas.flatMap((resposta) => resposta.capturas),
+          total: respostas[0]?.total ?? 0,
+        };
+      }
+
+      const respostas = await Promise.all(valores.map(buscarStatusCompleto));
+      const todasCapturas = respostas.flatMap((resposta) => resposta.capturas);
+
+      todasCapturas.sort(
+        (a, b) => new Date(b.timestamp) - new Date(a.timestamp),
+      );
+
+      const total = respostas.reduce(
+        (soma, resposta) => soma + resposta.total,
+        0,
+      );
+      const inicio = (pagina - 1) * tamanhoPagina;
+
+      return {
+        capturas: todasCapturas.slice(inicio, inicio + tamanhoPagina),
+        pagina,
+        tamanhoPagina,
+        total,
+        totalPaginas: Math.ceil(total / tamanhoPagina),
+      };
+    },
+    CACHE_TTL_MS,
+    true,
+  );
+}
+
+export function obterCapturasDoCache({
+  pagina = 1,
+  tamanhoPagina = 8,
+  status,
+  statusGeral,
+  origem,
+  dataInicio,
+  dataFim,
+  plantacaoId,
 } = {}) {
-    return lerCache({ pagina, tamanhoPagina, status, statusGeral, dataInicio, dataFim, plantacaoId })
+  const filtros = {
+    pagina,
+    tamanhoPagina,
+    status,
+    statusGeral,
+    origem,
+    dataInicio,
+    dataFim,
+    plantacaoId,
+  };
+
+  if (!status && !statusGeral) {
+    return lerCache({
+      tipo: "lista-multi",
+      pagina,
+      tamanhoPagina,
+      origem,
+      dataInicio,
+      dataFim,
+      plantacaoId,
+      valores: STATUS_SAUDE_MILHO,
+    });
+  }
+
+  return lerCache({ tipo: "lista", ...filtros });
 }
 
 export async function obterCaptura(capturaId, timestamp, plantacaoId) {
-    const params = new URLSearchParams({ timestamp })
-    if (plantacaoId) params.set("plantacao_id", plantacaoId)
-    const resposta = await apiFetch(`/capturas/${capturaId}?${params.toString()}`)
-    return normalizarDetalhe(resposta)
+  return comCache(
+    { tipo: "detalhe", capturaId, timestamp, plantacaoId },
+    async () => {
+      const params = new URLSearchParams({ timestamp });
+      if (plantacaoId) params.set("plantacao_id", plantacaoId);
+
+      const resposta = await apiFetch(
+        `/capturas/${capturaId}?${params.toString()}`,
+      );
+      console.log("Resposta bruta de obterCaptura:", resposta);
+      return normalizarDetalhe(resposta);
+    },
+    5 * 60 * 1000,
+  );
 }
 
 export async function obterResumoGeral(plantacaoId) {
+  return comCache({ tipo: "resumo", plantacaoId }, async () => {
     const [saudavel, naoSaudavel, naoMilho, erro] = await Promise.all([
-        listarCapturas({ statusGeral: "saudavel", tamanhoPagina: 1, plantacaoId }),
-        listarCapturas({ statusGeral: "nao_saudavel", tamanhoPagina: 1, plantacaoId }),
-        listarCapturas({ statusGeral: "nao_milho", tamanhoPagina: 1, plantacaoId }),
-        listarCapturas({ status: "ERRO", tamanhoPagina: 1, plantacaoId }),
-    ])
-
-    const totalPlantasClassificadas = saudavel.total + naoSaudavel.total
+      listarCapturas({
+        statusGeral: "saudavel",
+        tamanhoPagina: 1,
+        plantacaoId,
+      }),
+      listarCapturas({
+        statusGeral: "nao_saudavel",
+        tamanhoPagina: 1,
+        plantacaoId,
+      }),
+      listarCapturas({
+        statusGeral: "nao_milho",
+        tamanhoPagina: 1,
+        plantacaoId,
+      }),
+      listarCapturas({
+        status: "ERRO",
+        tamanhoPagina: 1,
+        plantacaoId,
+      }),
+    ]);
 
     return {
-        saudavel: saudavel.total,
-        naoSaudavel: naoSaudavel.total,
-        naoMilho: naoMilho.total,
-        impossivel: erro.total,
-        total: totalPlantasClassificadas,
-    }
+      saudavel: saudavel.total,
+      naoSaudavel: naoSaudavel.total,
+      naoMilho: naoMilho.total,
+      impossivel: erro.total,
+      total: saudavel.total + naoSaudavel.total,
+    };
+  });
 }
 
 export async function excluirCaptura(capturaId, timestamp, plantacaoId) {
-    const params = new URLSearchParams({ timestamp })
-    if (plantacaoId) params.set("plantacao_id", plantacaoId)
-    const resultado = await apiFetch(`/capturas/${capturaId}?${params.toString()}`, { method: "DELETE" })
-    limparCacheListagem()
-    return resultado
+  const params = new URLSearchParams({ timestamp });
+  if (plantacaoId) params.set("plantacao_id", plantacaoId);
+
+  const resultado = await apiFetch(
+    `/capturas/${capturaId}?${params.toString()}`,
+    { method: "DELETE" },
+  );
+
+  limparCacheListagem();
+  return resultado;
 }
 
-// o endpoint /capturas/mapa devolve so o que o mapa precisa (sem imagemUrl).
-// timestamp vem junto porque o detalhe (obterCaptura) exige ele na URL.
 function normalizarPontoMapa(item) {
-    return {
-        capturaId: campo(item, "capturaId", "captura_id"),
-        timestamp: item.timestamp,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        statusGeral: campo(item, "statusGeral", "status_geral"),
-    }
+  return {
+    capturaId: campo(item, "capturaId", "captura_id"),
+    timestamp: item.timestamp,
+    latitude: Number(item.latitude),
+    longitude: Number(item.longitude),
+    statusGeral: campo(item, "statusGeral", "status_geral"),
+  };
 }
 
 export async function obterPontosMapaCalor(plantacaoId) {
-    async function buscarPontos(statusGeral) {
-        const params = new URLSearchParams({ statusGeral })
-        if (plantacaoId) params.set("plantacaoId", plantacaoId)
-        const resposta = await apiFetch(`/capturas/mapa?${params.toString()}`)
-        return (resposta.pontos || []).map(normalizarPontoMapa)
-    }
+  const chave = { tipo: "mapa", plantacaoId };
 
-    const pontosPorStatus = await Promise.all(
-        GRUPOS_STATUS_GERAL.alerta.valores.map(buscarPontos)
-    )
+  return comCache(
+    chave,
+    async () => {
+      const params = new URLSearchParams();
+      if (plantacaoId) params.set("plantacaoId", plantacaoId);
 
-    return pontosPorStatus.flat()
+      const query = params.toString();
+      const resposta = await apiFetch(
+        `/capturas/mapa${query ? `?${query}` : ""}`,
+      );
+
+      return (resposta?.pontos || [])
+        .map(normalizarPontoMapa)
+        .filter(
+          (ponto) =>
+            Number.isFinite(ponto.latitude) && Number.isFinite(ponto.longitude),
+        );
+    },
+    30 * 1000,
+  );
 }
 
-/**
- * Envia uma captura nova via upload manual (usado pelo modal de upload
- * do dashboard) — reaproveita o mesmo POST /capturas usado pelo Klar.
- * modelo_versao_borda/confianca_borda ficam de fora de proposito: sao
- * metadados do dispositivo de borda (Jetson), que nao existem quando o
- * upload e manual — o backend ja trata esses dois como opcionais (o
- * mesmo fluxo de upload manual via script ja funcionou sem eles).
- */
-export async function enviarCaptura({ diaMesAno, latitude, longitude, imagemBase64 }) {
-    const resposta = await apiFetch("/capturas", {
-        method: "POST",
-        body: JSON.stringify({
-            dia_mes_ano: diaMesAno,
-            latitude,
-            longitude,
-            imagem_base64: imagemBase64,
-        }),
-    })
-    limparCacheListagem() // uma captura nova invalida a listagem em cache
-    return resposta
+export async function enviarCaptura({
+  diaMesAno,
+  latitude,
+  longitude,
+  imagemBase64,
+}) {
+  const resposta = await apiFetch("/capturas", {
+    method: "POST",
+    body: JSON.stringify({
+      dia_mes_ano: diaMesAno,
+      latitude,
+      longitude,
+      imagem_base64: imagemBase64,
+    }),
+  });
+
+  limparCacheListagem();
+  return resposta;
 }
 
-/**
- * Upload manual simplificado — usado pelo modal "Carregar Captura" do
- * dashboard. So a foto: sem data (vem do EXIF da propria imagem, lido
- * pelo backend) e sem coordenadas (quem faz upload manual ja sabe onde
- * tirou a foto).
- */
 export async function enviarCapturaSimples({ imagemBase64 }) {
-    const resposta = await apiFetch("/capturas/upload-simples", {
-        method: "POST",
-        body: JSON.stringify({ imagem_base64: imagemBase64 }),
-    })
-    limparCacheListagem()
-    return resposta
+  const resposta = await apiFetch("/capturas/upload-simples", {
+    method: "POST",
+    body: JSON.stringify({ imagem_base64: imagemBase64 }),
+  });
+
+  limparCacheListagem();
+  return resposta;
 }
 
-export { API_URL }
+export { API_URL };
