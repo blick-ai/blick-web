@@ -6,7 +6,7 @@ function arquivoParaBase64(arquivo) {
     return new Promise((resolve, reject) => {
         const leitor = new FileReader()
         leitor.onload = () => {
-            // remove o prefixo "data:image/jpeg;base64," — o backend espera so o base64 puro
+            // remove o prefixo "data:image/jpeg;base64," - o backend espera so o base64 puro
             const base64 = leitor.result.split(",")[1] || ""
             resolve(base64)
         }
@@ -22,7 +22,7 @@ export default function UploadModal({ onFechar, onSucesso, onSessaoExpirada }) {
     const [urlPreview, setUrlPreview] = useState(null)
     const [enviando, setEnviando] = useState(false)
 
-    // gera/limpa a URL de preview sempre que o arquivo muda — evita
+    // gera/limpa a URL de preview sempre que o arquivo muda - evita
     // vazamento de memoria (URL.revokeObjectURL) quando troca de foto
     // ou fecha o modal
     useEffect(() => {
@@ -81,7 +81,7 @@ export default function UploadModal({ onFechar, onSucesso, onSessaoExpirada }) {
                 </div>
 
                 <p className="text-[#8A898B] text-xs">
-                    A data da captura é lida automaticamente da própria foto — não é preciso preencher nada além da imagem.
+                    A data da captura é lida automaticamente da própria foto - não é preciso preencher nada além da imagem.
                 </p>
 
                 <div className="flex flex-col gap-2">

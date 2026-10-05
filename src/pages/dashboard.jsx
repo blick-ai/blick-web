@@ -7,11 +7,41 @@ import FilterPanel from "../components/filterPanel"
 import Pagination from "../components/pagination"
 import SessaoExpiradaModal from "../components/sessaoExpiradaModal"
 import UploadModal from "../components/uploadModal"
-import { listarCapturas, obterCaptura, obterCapturasDoCache, obterResumoGeral, obterPontosMapaCalor, SessaoExpiradaError } from "../services/api"
+import {
+    listarCapturas,
+    obterCaptura,
+    obterResumoGeral,
+    SessaoExpiradaError,
+} from "../services/api"
 
 const TAMANHO_PAGINA = 8
 
-const FILTROS_VAZIOS = { statusGeral: "", origem: "", dataInicio: "", dataFim: "" }
+const FILTROS_VAZIOS = {
+    statusGeral: "",
+    origem: "",
+    dataInicio: "",
+    dataFim: "",
+}
+
+function idDaCaptura(captura) {
+    return captura?.capturaId ?? captura?.captura_id ?? null
+}
+
+function timestampDaCaptura(captura) {
+    return (
+        captura?.timestamp ??
+        captura?.capturadoEm ??
+        captura?.capturado_em ??
+        null
+    )
+}
+
+function capturasDaResposta(resposta) {
+    if (Array.isArray(resposta)) return resposta
+    if (Array.isArray(resposta?.capturas)) return resposta.capturas
+    if (Array.isArray(resposta?.items)) return resposta.items
+    return []
+}
 
 export default function Dashboard() {
     const [filtros, setFiltros] = useState(FILTROS_VAZIOS)
@@ -29,58 +59,54 @@ export default function Dashboard() {
     const [sessaoExpirada, setSessaoExpirada] = useState(false)
     const [resumoGeral, setResumoGeral] = useState(null)
     const [carregandoResumo, setCarregandoResumo] = useState(true)
-    const [pontosCalor, setPontosCalor] = useState([])
-    const [carregandoPontosCalor, setCarregandoPontosCalor] = useState(true)
     const [refreshTick, setRefreshTick] = useState(0)
     const [mostrarUploadModal, setMostrarUploadModal] = useState(false)
+    const [capturaParaMapa, setCapturaParaMapa] = useState(null)
+    const [sidebarAberta, setSidebarAberta] = useState(false)
 
     useEffect(() => {
         let cancelado = false
 
-        const paramsBusca = {
-            pagina,
-            tamanhoPagina: TAMANHO_PAGINA,
-            statusGeral: filtros.statusGeral || undefined,
-            origem: filtros.origem || undefined,
-            dataInicio: filtros.dataInicio || undefined,
-            dataFim: filtros.dataFim || undefined,
-        }
-
-        const doCache = obterCapturasDoCache(paramsBusca)
-        if (doCache) {
-            setCapturas(doCache.capturas)
-            setTotal(doCache.total)
-            setTotalPaginas(doCache.totalPaginas)
-            setErroLista("")
-            setCarregandoLista(false)
-        } else {
+        async function carregarCapturas() {
             setCarregandoLista(true)
             setErroLista("")
-        }
 
-        async function carregar() {
             try {
-                const resultado = await listarCapturas(paramsBusca)
+                const resultado = await listarCapturas({
+                    pagina,
+                    tamanhoPagina: TAMANHO_PAGINA,
+                    statusGeral: filtros.statusGeral || undefined,
+                    origem: filtros.origem || undefined,
+                    dataInicio: filtros.dataInicio || undefined,
+                    dataFim: filtros.dataFim || undefined,
+                })
+
                 if (cancelado) return
-                setCapturas(resultado.capturas)
-                setTotal(resultado.total)
-                setTotalPaginas(resultado.totalPaginas)
+
+                setCapturas(capturasDaResposta(resultado))
+                setTotal(resultado?.total ?? 0)
+                setTotalPaginas(resultado?.totalPaginas ?? 0)
             } catch (erro) {
                 if (cancelado) return
+
                 if (erro instanceof SessaoExpiradaError) {
                     setSessaoExpirada(true)
                     return
                 }
-                if (!doCache) {
-                    setErroLista(erro.message || "Não foi possível carregar as capturas.")
-                }
+
+                setErroLista(
+                    erro.message || "Não foi possível carregar as capturas.",
+                )
             } finally {
                 if (!cancelado) setCarregandoLista(false)
             }
         }
 
-        carregar()
-        return () => { cancelado = true }
+        carregarCapturas()
+
+        return () => {
+            cancelado = true
+        }
     }, [filtros, pagina, refreshTick])
 
     useEffect(() => {
@@ -88,12 +114,13 @@ export default function Dashboard() {
 
         async function carregarResumo() {
             setCarregandoResumo(true)
+
             try {
                 const resultado = await obterResumoGeral()
-                if (cancelado) return
-                setResumoGeral(resultado)
+                if (!cancelado) setResumoGeral(resultado)
             } catch (erro) {
                 if (cancelado) return
+
                 if (erro instanceof SessaoExpiradaError) {
                     setSessaoExpirada(true)
                 }
@@ -103,64 +130,84 @@ export default function Dashboard() {
         }
 
         carregarResumo()
-        return () => { cancelado = true }
-    }, [refreshTick])
 
-    useEffect(() => {
-        let cancelado = false
-
-        async function carregarPontosCalor() {
-            setCarregandoPontosCalor(true)
-            try {
-                const pontos = await obterPontosMapaCalor()
-                if (cancelado) return
-                setPontosCalor(pontos)
-            } catch (erro) {
-                if (cancelado) return
-                if (erro instanceof SessaoExpiradaError) {
-                    setSessaoExpirada(true)
-                    return
-                }
-                setPontosCalor([])
-            } finally {
-                if (!cancelado) setCarregandoPontosCalor(false)
-            }
+        return () => {
+            cancelado = true
         }
-
-        carregarPontosCalor()
-        return () => { cancelado = true }
     }, [refreshTick])
 
     useEffect(() => {
         if (!selecionada) {
             setDetalhe(null)
             setErroDetalhe("")
+            setCarregandoDetalhe(false)
             return
         }
 
         let cancelado = false
 
         async function carregarDetalhe() {
-            setCarregandoDetalhe(true)
+            setDetalhe(selecionada)
             setErroDetalhe("")
+
+            const capturaId = idDaCaptura(selecionada)
+            const timestamp = timestampDaCaptura(selecionada)
+            const plantacaoId =
+                selecionada.plantacaoId ?? selecionada.plantacao_id
+
+            if (capturaId == null || timestamp == null) {
+                setCarregandoDetalhe(false)
+                setErroDetalhe(
+                    "Não foi possível carregar os detalhes: o ponto do mapa não contém o ID ou o timestamp da captura.",
+                )
+                return
+            }
+
+            setCarregandoDetalhe(true)
+
             try {
-                const resultado = await obterCaptura(selecionada.capturaId, selecionada.timestamp)
+                // Busca diretamente o detalhe da captura selecionada no mapa.
+                const resposta = await obterCaptura(
+                    capturaId,
+                    timestamp,
+                    plantacaoId,
+                )
+
                 if (cancelado) return
-                setDetalhe(resultado)
+
+                const resultado =
+                    resposta?.captura ?? resposta?.data ?? resposta ?? {}
+
+                const camposPresentes = Object.fromEntries(
+                    Object.entries(resultado).filter(
+                        ([, valor]) =>
+                            valor !== undefined && valor !== null && valor !== "",
+                    ),
+                )
+
+                setDetalhe({ ...selecionada, ...camposPresentes })
             } catch (erro) {
                 if (cancelado) return
+
                 if (erro instanceof SessaoExpiradaError) {
                     setSessaoExpirada(true)
                     return
                 }
-                setErroDetalhe(erro.message || "Não foi possível carregar o detalhe desta captura.")
+
+                setErroDetalhe(
+                    erro.message ||
+                        "Não foi possível carregar os detalhes desta captura.",
+                )
             } finally {
                 if (!cancelado) setCarregandoDetalhe(false)
             }
         }
 
         carregarDetalhe()
-        return () => { cancelado = true }
+
+        return () => {
+            cancelado = true
+        }
     }, [selecionada])
 
     function handleFiltrosChange(novosFiltros) {
@@ -173,20 +220,43 @@ export default function Dashboard() {
         setPagina(1)
     }
 
+    function handleSelecionarCapturaNoMapa(capturaDoMapa) {
+        // Não altera a página nem procura a captura na lista.
+        // A seleção abre o modal e dispara a consulta de detalhe.
+        setSelecionada(capturaDoMapa)
+    }
+
+    function handleExibirNoMapa(captura) {
+        setCapturaParaMapa({
+            captura,
+            chave: `${idDaCaptura(captura) ?? ""}-${Date.now()}`,
+        })
+        setSidebarAberta(true)
+        setSelecionada(null)
+    }
+
     const capturasFiltradas = busca
-        ? capturas.filter((c) => c.capturaId.toLowerCase().includes(busca.toLowerCase()))
+        ? capturas.filter((captura) =>
+              String(idDaCaptura(captura) ?? "")
+                  .toLowerCase()
+                  .includes(busca.toLowerCase()),
+          )
         : capturas
 
     return (
-        <div className="bg-[#16191C] flex flex-row min-h-screen items-stretch">
+        <div className="flex min-h-screen flex-row items-stretch bg-[#16191C]">
             {sessaoExpirada && <SessaoExpiradaModal />}
+
             <Sidebar
                 resumo={resumoGeral}
                 carregandoResumo={carregandoResumo}
-                pontosCalor={pontosCalor}
-                carregandoPontosCalor={carregandoPontosCalor}
+                capturaParaMapa={capturaParaMapa}
+                onSelecionarCapturaNoMapa={handleSelecionarCapturaNoMapa}
+                aberto={sidebarAberta}
+                onOpenChange={setSidebarAberta}
             />
-            <div className="flex flex-col gap-4 p-4 md:p-6 flex-1 min-w-0 pt-20 md:pt-6">
+
+            <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 pt-20 md:p-6 md:pt-6">
                 <PhotoHeader
                     total={total}
                     busca={busca}
@@ -200,30 +270,42 @@ export default function Dashboard() {
                         />
                     }
                 />
-                <div className="flex flex-col gap-3 min-w-0 flex-1 min-h-0">
+
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
                     <PhotoList
                         capturas={capturasFiltradas}
-                        selectedId={selecionada?.capturaId}
+                        selectedId={idDaCaptura(selecionada)}
                         onSelect={setSelecionada}
                         carregando={carregandoLista}
                         erro={erroLista}
                     />
-                    <Pagination paginaAtual={pagina} totalPaginas={totalPaginas} onChange={setPagina} />
+
+                    <Pagination
+                        paginaAtual={pagina}
+                        totalPaginas={totalPaginas}
+                        onChange={setPagina}
+                        carregando={carregandoLista}
+                    />
                 </div>
-            </div>
+            </main>
 
             {selecionada && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center">
-                    <div className="fixed inset-0 bg-black/60" onClick={() => setSelecionada(null)} />
-                    <div className="relative bg-[#16191C] flex flex-col w-full h-full sm:h-auto sm:max-h-[90vh] sm:w-[90vw] sm:max-w-2xl sm:rounded-2xl border border-[#8A898B]/25 overflow-hidden">
-                        <div className="overflow-y-auto flex-1 custom-scrollbar">
+                    <div
+                        className="fixed inset-0 bg-black/60"
+                        onClick={() => setSelecionada(null)}
+                    />
+
+                    <div className="relative flex h-full w-full flex-col overflow-hidden border border-[#8A898B]/25 bg-[#16191C] sm:h-auto sm:max-h-[90vh] sm:w-[90vw] sm:max-w-2xl sm:rounded-2xl">
+                        <div className="custom-scrollbar flex-1 overflow-y-auto">
                             <PlantHighlight
-                                captura={detalhe}
+                                captura={detalhe ?? selecionada}
                                 carregando={carregandoDetalhe}
                                 erro={erroDetalhe}
+                                onExibirNoMapa={handleExibirNoMapa}
                                 onExcluida={() => {
                                     setSelecionada(null)
-                                    setRefreshTick((t) => t + 1)
+                                    setRefreshTick((tick) => tick + 1)
                                 }}
                                 onSessaoExpirada={() => setSessaoExpirada(true)}
                                 onFechar={() => setSelecionada(null)}
@@ -236,7 +318,7 @@ export default function Dashboard() {
             {mostrarUploadModal && (
                 <UploadModal
                     onFechar={() => setMostrarUploadModal(false)}
-                    onSucesso={() => setRefreshTick((t) => t + 1)}
+                    onSucesso={() => setRefreshTick((tick) => tick + 1)}
                     onSessaoExpirada={() => setSessaoExpirada(true)}
                 />
             )}

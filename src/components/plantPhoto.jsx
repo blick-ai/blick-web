@@ -23,6 +23,9 @@ export default function PlantPhoto({
 }) {
     const pendenteOuErro = status !== "CLASSIFICADO"
     const { label, color } = statusInfo(statusGeral)
+    const exibirAlerta =
+        Boolean(alertaEmitido) &&
+        String(statusGeral ?? "").toLowerCase() === "nao_saudavel"
 
     return (
         <div
@@ -39,7 +42,7 @@ export default function PlantPhoto({
                     <div className="flex flex-row gap-2 items-center min-w-0">
                         <img src={cameraGray} className="w-4 h-4 shrink-0" />
                         <p className="text-white font-bold uppercase truncate">{formatarData(timestamp)} - {formatarHora(timestamp)}</p>
-                        {alertaEmitido && (
+                        {exibirAlerta && (
                             <span className="bg-[#C75050]/20 text-[#C75050] text-[9px] font-bold rounded-full px-2 py-0.5 shrink-0">
                                 ALERTA
                             </span>
@@ -50,7 +53,7 @@ export default function PlantPhoto({
                                     : "bg-[#8A898B]/20 text-[#8A898B]"
                                 }`}
                         >
-                            {origem === "manual" ? "📷 MANUAL" : "🚜 ROVER"}
+                            {origem === "manual" ? "MANUAL" : "ROVER"}
                         </span>
                     </div>
                 </div>

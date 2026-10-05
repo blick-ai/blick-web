@@ -1,13 +1,13 @@
 import klarImg from "../assets/images/klar.png"
 
-// Especificacoes reais do Rover JPL (Klar), fixas — o sistema nao tem
+// Especificacoes reais do Rover JPL (Klar), fixas - o sistema nao tem
 // telemetria ao vivo do carrinho (velocidade/bateria/posicao/capturas do
 // dia nao chegam da API pra esse card), entao mostramos a ficha tecnica
 // em vez de fingir um valor "ao vivo" sem fonte de dado por tras.
 const VELOCIDADE_MAXIMA = "17 cm/s"
 const PESO = "11,34 kg"
 const DIMENSOES = "60,96 × 30,48 cm"
-const BATERIA_TIPO = "13,2V recarregável — Green Series (MaxAmps.com)"
+const BATERIA_TIPO = "13,2V recarregável - Green Series (MaxAmps.com)"
 const BATERIA_FAIXA = "11,5V   –   16,75V conforme nível de carga"
 
 export default function CarInfo() {
