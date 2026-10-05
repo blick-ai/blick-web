@@ -90,7 +90,9 @@ export default function PlantHighlight({
     const timestamp =
         captura.timestamp ?? captura.capturadoEm ?? captura.capturado_em
     const status =
-        captura.status ?? captura.statusProcessamento ?? captura.status_processamento
+        captura.status ??
+        captura.statusProcessamento ??
+        captura.status_processamento
     const diagnostico = captura.diagnostico ?? {}
     const localizacao = captura.localizacao ?? {}
     const statusGeral =
@@ -111,6 +113,7 @@ export default function PlantHighlight({
         captura.alerta_emitido ??
         captura.alerta?.emitido
     const origem = captura.origem
+    const capturaManual = String(origem ?? "").toLowerCase() === "manual"
 
     const { label, color, bg } = obterStatusInfoSeguro(statusGeral)
     const classificada = status === "CLASSIFICADO"
@@ -253,7 +256,7 @@ export default function PlantHighlight({
                     <div className="flex items-center gap-2">
                         <img src={cameraGray} alt="" className="h-4 w-4" />
                         <p className="font-bold uppercase text-white">
-                            Captura {exibirOuNulo(capturaId)} —{" "}
+                            Captura {exibirOuNulo(capturaId)} -{" "}
                             {formatarDataSegura(timestamp, formatarData)}{" "}
                             {formatarDataSegura(timestamp, formatarHora)}
                         </p>
@@ -263,23 +266,24 @@ export default function PlantHighlight({
                         <p>ID da captura: {exibirOuNulo(capturaId)}</p>
                     </div>
 
-                    {coordenadas ? (
-                        <div className="flex flex-wrap items-center gap-2 text-sm text-[#8A898B]">
-                            <img
-                                src={locationPin}
-                                alt=""
-                                className="h-4 w-4 shrink-0"
-                            />
-                            <p>
-                                {formatarCoordenada(latitude)},{" "}
-                                {formatarCoordenada(longitude)}
+                    {!capturaManual &&
+                        (coordenadas ? (
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-[#8A898B]">
+                                <img
+                                    src={locationPin}
+                                    alt=""
+                                    className="h-4 w-4 shrink-0"
+                                />
+                                <p>
+                                    {formatarCoordenada(latitude)},{" "}
+                                    {formatarCoordenada(longitude)}
+                                </p>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-[#8A898B]">
+                                Coordenadas: Nulo
                             </p>
-                        </div>
-                    ) : (
-                        <p className="text-sm text-[#8A898B]">
-                            Coordenadas: Nulo
-                        </p>
-                    )}
+                        ))}
 
                     {carregando && (
                         <p className="text-xs text-[#8A898B]" role="status">
@@ -342,7 +346,7 @@ export default function PlantHighlight({
                         {exibirAlerta && (
                             <div className="flex flex-col gap-1 rounded-xl border border-[#C75050] bg-[#C75050]/10 p-3">
                                 <p className="text-sm font-bold text-[#C75050]">
-                                    ⚠ Alerta —{" "}
+                                    ⚠ Alerta -{" "}
                                     {LABEL_CLASSE[statusNormalizado] ??
                                         exibirOuNulo(statusGeral)}{" "}
                                     detectado

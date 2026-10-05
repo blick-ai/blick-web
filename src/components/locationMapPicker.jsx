@@ -48,7 +48,7 @@ export default function LocationMapPicker({ latitude, longitude, onSelecionar })
         return (
             <div className="bg-[#16191C] border border-[#8A898B]/25 rounded-lg p-4 text-center">
                 <p className="text-[#8A898B] text-xs">
-                    Mapa indisponível — configure <code className="text-[10px]">VITE_GOOGLE_MAPS_API_KEY</code> pra habilitar essa opção.
+                    Mapa indisponível - configure <code className="text-[10px]">VITE_GOOGLE_MAPS_API_KEY</code> pra habilitar essa opção.
                 </p>
             </div>
         )
@@ -79,7 +79,7 @@ export default function LocationMapPicker({ latitude, longitude, onSelecionar })
                     zoom={17}
                     onClick={handleClickNoMapa}
                     options={{
-                        mapTypeId: "hybrid", // satelite + nomes de rua — mais util pra achar um ponto na plantacao do que o mapa de ruas comum
+                        mapTypeId: "hybrid", // satelite + nomes de rua - mais util pra achar um ponto na plantacao do que o mapa de ruas comum
                         styles: ESTILO_MAPA_ESCURO, // só tem efeito no modo "mapa" comum; nao se aplica a imagem de satelite
                         mapTypeControl: true, // deixa o usuario alternar entre satelite/mapa se preferir
                         mapTypeControlOptions: { position: window.google?.maps?.ControlPosition?.TOP_RIGHT },

@@ -26,15 +26,15 @@ export function paraPercentual(confianca) {
 }
 
 export function formatarHora(timestampIso) {
-    if (!timestampIso) return "—"
+    if (!timestampIso) return "-"
     const data = new Date(timestampIso)
-    if (Number.isNaN(data.getTime())) return "—"
+    if (Number.isNaN(data.getTime())) return "-"
     return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
 }
 
 export function formatarData(timestampIso) {
-    if (!timestampIso) return "—"
+    if (!timestampIso) return "-"
     const data = new Date(timestampIso)
-    if (Number.isNaN(data.getTime())) return "—"
+    if (Number.isNaN(data.getTime())) return "-"
     return data.toLocaleDateString("pt-BR")
 }
