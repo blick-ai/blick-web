@@ -1,5 +1,4 @@
 import { useState } from "react"
-import StatusBar from "./statusBar"
 import ConfirmModal from "./confirmModal"
 import plantPlaceholder from "../assets/images/plant-placeholder.png"
 import cameraGray from "../assets/images/camera-gray.png"
@@ -18,6 +17,11 @@ const LABEL_CLASSE = {
     saudavel: "Saudável",
     nao_saudavel: "Não saudável",
     nao_milho: "Não é milho",
+}
+
+const CORES_PLANTA = {
+    saudavel: "#4CAF50",
+    nao_saudavel: "#C75050",
 }
 
 function exibirOuNulo(valor) {
@@ -71,6 +75,210 @@ function obterStatusInfoSeguro(statusGeral) {
     }
 }
 
+function normalizarClasse(classe) {
+    return String(classe ?? "")
+        .trim()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[\s-]+/g, "_")
+}
+
+function obterPlantas(captura) {
+    if (Array.isArray(captura?.plantas)) return captura.plantas
+    if (Array.isArray(captura?.analisePorPlanta)) {
+        return captura.analisePorPlanta
+    }
+    if (Array.isArray(captura?.analise_por_planta)) {
+        return captura.analise_por_planta
+    }
+    return []
+}
+
+function obterContorno(planta) {
+    if (!Array.isArray(planta?.contorno) || planta.contorno.length < 3) {
+        return []
+    }
+
+    return planta.contorno.filter(
+        (ponto) =>
+            Array.isArray(ponto) &&
+            ponto.length >= 2 &&
+            Number.isFinite(Number(ponto[0])) &&
+            Number.isFinite(Number(ponto[1])),
+    )
+}
+
+function obterRotulo(planta, contorno) {
+    const caixa = planta?.caixa
+
+    if (
+        Array.isArray(caixa) &&
+        caixa.length >= 4 &&
+        Number.isFinite(Number(caixa[0])) &&
+        Number.isFinite(Number(caixa[1]))
+    ) {
+        return {
+            x: Math.max(0, Math.min(0.98, Number(caixa[0]))),
+            y: Math.max(0.035, Math.min(1, Number(caixa[1]))),
+        }
+    }
+
+    const mediaX =
+        contorno.reduce((soma, ponto) => soma + Number(ponto[0]), 0) /
+        contorno.length
+    const menorY = Math.min(...contorno.map((ponto) => Number(ponto[1])))
+
+    return {
+        x: Math.max(0, Math.min(0.98, mediaX - 0.06)),
+        y: Math.max(0.035, menorY),
+    }
+}
+
+function AnotacoesPlantas({ plantas }) {
+    const plantasComContorno = plantas
+        .map((planta, indice) => ({
+            planta,
+            indice,
+            classe: normalizarClasse(planta?.classe),
+            contorno: obterContorno(planta),
+        }))
+        .filter(
+            (item) =>
+                item.contorno.length >= 3 && CORES_PLANTA[item.classe],
+        )
+
+    if (plantasComContorno.length === 0) return null
+
+    return (
+        <svg
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            viewBox="0 0 1 1"
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="Contornos e estado de saúde das plantas detectadas"
+        >
+            {plantasComContorno.map(({ planta, indice, classe, contorno }) => {
+                const cor = CORES_PLANTA[classe]
+                const pontos = contorno
+                    .map(([x, y]) => `${Number(x)},${Number(y)}`)
+                    .join(" ")
+                const aninhada = Boolean(planta?.aninhada)
+                const rotulo = obterRotulo(planta, contorno)
+                const confianca = Number(planta?.confianca)
+                const texto =
+                    LABEL_CLASSE[classe] +
+                    (Number.isFinite(confianca)
+                        ? ` ${Math.round(confianca * 100)}%`
+                        : "")
+
+                return (
+                    <g key={`${indice}-${classe}`}>
+                        <polygon
+                            points={pontos}
+                            fill={cor}
+                            fillOpacity={aninhada ? 0 : 0.28}
+                            stroke={cor}
+                            strokeWidth="0.003"
+                            vectorEffect="non-scaling-stroke"
+                            strokeLinejoin="round"
+                        >
+                            <title>{texto}</title>
+                        </polygon>
+
+                        {!aninhada && (
+                            <g>
+                                <rect
+                                    x={rotulo.x}
+                                    y={rotulo.y - 0.032}
+                                    width="0.15"
+                                    height="0.032"
+                                    rx="0.004"
+                                    fill={cor}
+                                    fillOpacity="0.95"
+                                />
+                                <text
+                                    x={rotulo.x + 0.006}
+                                    y={rotulo.y - 0.009}
+                                    fill="#FFFFFF"
+                                    fontSize="0.019"
+                                    fontWeight="700"
+                                    fontFamily="sans-serif"
+                                >
+                                    {texto}
+                                </text>
+                            </g>
+                        )}
+                    </g>
+                )
+            })}
+        </svg>
+    )
+}
+
+function BarraSaudePlantas({ plantas }) {
+    const contagem = plantas.reduce(
+        (resultado, planta) => {
+            const classe = normalizarClasse(planta?.classe)
+
+            if (classe === "saudavel") resultado.saudaveis += 1
+            if (classe === "nao_saudavel") resultado.naoSaudaveis += 1
+
+            return resultado
+        },
+        { saudaveis: 0, naoSaudaveis: 0 },
+    )
+
+    const total = contagem.saudaveis + contagem.naoSaudaveis
+
+    if (total === 0) {
+        return (
+            <p className="text-sm text-[#8A898B]">
+                Não há plantas classificadas nesta captura.
+            </p>
+        )
+    }
+
+    const percentualSaudavel = Math.round(
+        (contagem.saudaveis / total) * 100,
+    )
+    const percentualNaoSaudavel = 100 - percentualSaudavel
+
+    return (
+        <div className="flex flex-col gap-3">
+            <div
+                className="flex h-4 w-full overflow-hidden rounded-full bg-[#C75050]"
+                role="img"
+                aria-label={`${percentualSaudavel}% de plantas saudáveis e ${percentualNaoSaudavel}% de plantas não saudáveis`}
+            >
+                {percentualSaudavel > 0 && (
+                    <div
+                        className="h-full bg-[#4CAF50] transition-all"
+                        style={{ width: `${percentualSaudavel}%` }}
+                    />
+                )}
+                {percentualNaoSaudavel === 0 && (
+                    <div className="h-full w-full bg-[#4CAF50]" />
+                )}
+            </div>
+
+            <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm">
+                <p className="font-semibold text-[#4CAF50]">
+                    Saudáveis: {percentualSaudavel}% ({contagem.saudaveis})
+                </p>
+                <p className="font-semibold text-[#C75050]">
+                    Não saudáveis: {percentualNaoSaudavel}% (
+                    {contagem.naoSaudaveis})
+                </p>
+            </div>
+
+            <p className="text-xs text-[#8A898B]">
+                Total de plantas classificadas: {total}
+            </p>
+        </div>
+    )
+}
+
 export default function PlantHighlight({
     captura,
     carregando,
@@ -83,6 +291,7 @@ export default function PlantHighlight({
     const { mostrarToast } = useToast()
     const [excluindo, setExcluindo] = useState(false)
     const [mostrarConfirmacao, setMostrarConfirmacao] = useState(false)
+    const [zoomAberto, setZoomAberto] = useState(false)
 
     if (!captura) return null
 
@@ -107,20 +316,18 @@ export default function PlantHighlight({
     const latitude = captura.latitude ?? localizacao.latitude
     const longitude = captura.longitude ?? localizacao.longitude
     const imagemUrl = captura.imagemUrl ?? captura.imagem_url
-    const erroDetalhes = captura.erroDetalhes ?? captura.erro_detalhes
     const alertaEmitido =
         captura.alertaEmitido ??
         captura.alerta_emitido ??
         captura.alerta?.emitido
     const origem = captura.origem
     const capturaManual = String(origem ?? "").toLowerCase() === "manual"
+    const plantas = obterPlantas(captura)
 
     const { label, color, bg } = obterStatusInfoSeguro(statusGeral)
     const classificada = status === "CLASSIFICADO"
-    const statusNormalizado = String(statusGeral ?? "").toLowerCase()
-    const statusNaoSaudavel =
-        statusNormalizado === "nao_saudavel" ||
-        statusNormalizado === "não_saudável"
+    const statusNormalizado = normalizarClasse(statusGeral)
+    const statusNaoSaudavel = statusNormalizado === "nao_saudavel"
     const exibirAlerta = Boolean(alertaEmitido) && statusNaoSaudavel
     const coordenadas =
         latitude !== null &&
@@ -170,9 +377,15 @@ export default function PlantHighlight({
                         <div className="flex flex-wrap items-center gap-2">
                             <div
                                 className="rounded-full border px-3 py-0.5 text-center"
-                                style={{ backgroundColor: bg, borderColor: color }}
+                                style={{
+                                    backgroundColor: bg,
+                                    borderColor: color,
+                                }}
                             >
-                                <p className="text-[10px] font-bold" style={{ color }}>
+                                <p
+                                    className="text-[10px] font-bold"
+                                    style={{ color }}
+                                >
                                     ●{" "}
                                     {classificada
                                         ? label
@@ -300,107 +513,90 @@ export default function PlantHighlight({
             </div>
 
             <div className="flex flex-col items-center justify-center border border-t-0 border-[#8A898B]/25 bg-[#1B2125] p-4">
-                <img
-                    src={
-                        typeof imagemUrl === "string" && imagemUrl
-                            ? imagemUrl
-                            : plantPlaceholder
-                    }
-                    alt={`Imagem da captura ${exibirOuNulo(capturaId)}`}
-                    onError={(evento) => {
-                        evento.currentTarget.src = plantPlaceholder
-                    }}
-                    className="h-auto w-full rounded-2xl object-cover sm:w-40 md:w-full"
-                />
+                <div className="flex w-full justify-center overflow-hidden rounded-2xl">
+                    <button
+                        type="button"
+                        onClick={() => setZoomAberto(true)}
+                        aria-label="Ampliar imagem da captura"
+                        title="Clique para ampliar"
+                        className="relative inline-block max-h-[60vh] max-w-full cursor-zoom-in border-0 bg-transparent p-0 align-middle"
+                    >
+                        <img
+                            src={
+                                typeof imagemUrl === "string" && imagemUrl
+                                    ? imagemUrl
+                                    : plantPlaceholder
+                            }
+                            alt={`Imagem da captura ${exibirOuNulo(capturaId)}`}
+                            onError={(evento) => {
+                                evento.currentTarget.src = plantPlaceholder
+                            }}
+                            className="block h-auto max-h-[60vh] max-w-full w-auto object-contain"
+                        />
+                        <AnotacoesPlantas plantas={plantas} />
+                    </button>
+                </div>
                 {!imagemUrl && (
                     <p className="mt-2 text-xs text-[#8A898B]">Imagem: Nulo</p>
                 )}
             </div>
 
             <div className="border border-t-0 border-[#8A898B]/25 bg-[#1B2125] p-4">
-                {classificada ? (
-                    <div className="flex w-full flex-col gap-3">
-                        <p className="font-bold text-[#8A898B]">ESTADO DA PLANTA</p>
-
-                        {statusGeral ? (
-                            <StatusBar
-                                statusGeral={statusGeral}
-                                confianca={confiancaStatusGeral}
-                                size="lg"
-                            />
-                        ) : (
-                            <p className="text-sm text-white">Saúde: Nulo</p>
-                        )}
-
+                <div className="flex w-full flex-col gap-3">
+                    <p className="font-bold text-[#8A898B]">
+                        SAÚDE DAS PLANTAS NA FOTO
+                    </p>
+                    <BarraSaudePlantas plantas={plantas} />
+                    {classificada && (
                         <p className="text-sm text-[#8A898B]">
-                            Confiança: {exibirOuNulo(confiancaStatusGeral)}
+                            Classificação geral:{" "}
+                            <span className="text-white">{label}</span>
                         </p>
+                    )}
+                    {confiancaStatusGeral != null && (
+                        <p className="text-sm text-[#8A898B]">
+                            Confiança geral:{" "}
+                            {exibirOuNulo(confiancaStatusGeral)}
+                        </p>
+                    )}
 
-                        {subtipo != null && subtipo !== "" && (
-                            <p className="text-sm text-[#8A898B]">
-                                Subtipo identificado:{" "}
-                                <span className="text-white">{subtipo}</span>
+                    {subtipo != null && subtipo !== "" && (
+                        <p className="text-sm text-[#8A898B]">
+                            Subtipo identificado:{" "}
+                            <span className="text-white">{subtipo}</span>
+                        </p>
+                    )}
+
+                    {exibirAlerta && (
+                        <div className="flex flex-col gap-1 rounded-xl border border-[#C75050] bg-[#C75050]/10 p-3">
+                            <p className="text-sm font-bold text-[#C75050]">
+                                ⚠ Alerta - planta não saudável detectada
                             </p>
-                        )}
-
-                        {exibirAlerta && (
-                            <div className="flex flex-col gap-1 rounded-xl border border-[#C75050] bg-[#C75050]/10 p-3">
-                                <p className="text-sm font-bold text-[#C75050]">
-                                    ⚠ Alerta -{" "}
-                                    {LABEL_CLASSE[statusNormalizado] ??
-                                        exibirOuNulo(statusGeral)}{" "}
-                                    detectado
-                                </p>
-                                <p className="text-xs text-[#8A898B]">
-                                    Recomenda-se uma inspeção visual no local para
-                                    confirmar a extensão do problema e decidir se é
-                                    necessária alguma ação.
-                                </p>
-                            </div>
-                        )}
-
-                        {statusNormalizado === "nao_milho" && (
-                            <div className="flex flex-col gap-1 rounded-xl border border-[#8A898B]/40 bg-[#2A2D31] p-3">
-                                <p className="text-sm font-bold text-[#8A898B]">
-                                    ℹ Esta captura pode ser ignorada
-                                </p>
-                                <p className="text-xs text-[#8A898B]">
-                                    O modelo não identificou uma planta de milho válida
-                                    nesta imagem.
-                                </p>
-                            </div>
-                        )}
-
-                        <p className="text-sm text-[#8A898B]">
-                            Classificação gerada pelo modelo de visão computacional
-                            a partir desta captura.
-                        </p>
-                    </div>
-                ) : (
-                    <div className="flex flex-col gap-2">
-                        <p className="font-bold text-[#8A898B]">
-                            STATUS DA CLASSIFICAÇÃO
-                        </p>
-                        <p className="text-sm text-white">
-                            {status === "PENDENTE"
-                                ? "Esta captura ainda não foi classificada pelo modelo."
-                                : status === "ERRO"
-                                  ? "A classificação desta captura falhou."
-                                  : "Status: Nulo"}
-                        </p>
-                        {status === "ERRO" && (
-                            <p className="break-words font-mono text-xs text-[#C75050]">
-                                {exibirOuNulo(erroDetalhes)}
+                            <p className="text-xs text-[#8A898B]">
+                                Recomenda-se uma inspeção visual no local para
+                                confirmar a extensão do problema e decidir se é
+                                necessária alguma ação.
                             </p>
-                        )}
-                        <p className="text-sm text-[#8A898B]">
-                            Saúde: {exibirOuNulo(statusGeral)}
-                        </p>
-                        <p className="text-sm text-[#8A898B]">
-                            Confiança: {exibirOuNulo(confiancaStatusGeral)}
-                        </p>
-                    </div>
-                )}
+                        </div>
+                    )}
+
+                    {statusNormalizado === "nao_milho" && (
+                        <div className="flex flex-col gap-1 rounded-xl border border-[#8A898B]/40 bg-[#2A2D31] p-3">
+                            <p className="text-sm font-bold text-[#8A898B]">
+                                ℹ Esta captura pode ser ignorada
+                            </p>
+                            <p className="text-xs text-[#8A898B]">
+                                O modelo não identificou uma planta de milho
+                                válida nesta imagem.
+                            </p>
+                        </div>
+                    )}
+
+                    <p className="text-sm text-[#8A898B]">
+                        Classificação gerada pelo modelo de visão computacional
+                        a partir desta captura.
+                    </p>
+                </div>
             </div>
 
             <div className="flex justify-end rounded-b-2xl border border-t-0 border-[#8A898B]/25 bg-[#1B2125] p-4">
@@ -438,6 +634,59 @@ export default function PlantHighlight({
                     Excluir captura
                 </button>
             </div>
+
+            {zoomAberto && (
+                <div
+                    role="presentation"
+                    onClick={() => setZoomAberto(false)}
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4"
+                >
+                    <button
+                        type="button"
+                        onClick={() => setZoomAberto(false)}
+                        aria-label="Fechar imagem ampliada"
+                        title="Fechar"
+                        className="absolute right-4 top-4 z-10 rounded-full bg-[#1B2125] p-2 text-white transition-colors hover:bg-[#343A40]"
+                    >
+                        <svg
+                            width="24"
+                            height="24"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M6 6L18 18M6 18L18 6"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            />
+                        </svg>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={(evento) => evento.stopPropagation()}
+                        aria-label="Imagem ampliada da captura"
+                        className="relative inline-block max-h-[90vh] max-w-[95vw] cursor-zoom-out border-0 bg-transparent p-0"
+                    >
+                        <img
+                            src={
+                                typeof imagemUrl === "string" && imagemUrl
+                                    ? imagemUrl
+                                    : plantPlaceholder
+                            }
+                            alt={`Imagem ampliada da captura ${exibirOuNulo(capturaId)}`}
+                            onError={(evento) => {
+                                evento.currentTarget.src = plantPlaceholder
+                            }}
+                            className="block h-auto max-h-[90vh] max-w-[95vw] w-auto object-contain"
+                        />
+                        <AnotacoesPlantas plantas={plantas} />
+                    </button>
+                </div>
+            )}
 
             {mostrarConfirmacao && (
                 <ConfirmModal
