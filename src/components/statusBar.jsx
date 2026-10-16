@@ -9,7 +9,7 @@ export default function StatusBar({ statusGeral, confianca, size = "sm" }) {
             <div className="flex flex-col gap-2 flex-1 justify-center">
                 <div className="flex flex-row items-baseline gap-2">
                     <p className="text-3xl font-extrabold" style={{ color }}>
-                        {percentual !== null ? `${percentual}%` : "—"}
+                        {percentual !== null ? `${percentual}%` : "-"}
                     </p>
                     <p className="text-sm font-bold" style={{ color }}>{label}</p>
                 </div>
